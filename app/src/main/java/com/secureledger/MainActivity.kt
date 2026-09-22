@@ -6,8 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
-import com.secureledger.ui.SecureLedgerApp
-import com.secureledger.ui.SecureLedgerTheme
+import com.secureledger.app.SecureLedgerApp
+import com.secureledger.app.SecureLedgerTheme
 
 class MainActivity : ComponentActivity() {
     private val sharedImageUri = mutableStateOf<Uri?>(null)
