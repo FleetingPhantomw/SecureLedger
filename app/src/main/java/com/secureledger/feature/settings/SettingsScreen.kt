@@ -98,7 +98,7 @@ fun SettingsScreen(
             Text("异常与恢复", style = MaterialTheme.typography.titleMedium)
             Text("忘记保险库密码时无法绕过加密；应使用备份文件和备份密码在空安装中恢复。密码学错误不会静默忽略。", style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = onLock, modifier = Modifier.fillMaxWidth()) { Text("立即锁定") }
-            Text("SecureLedger 1.0.0 · 数据库 v6", style = MaterialTheme.typography.bodySmall)
+            Text("SecureLedger 1.0.0 · 数据库 v7", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

@@ -43,7 +43,8 @@ class BackupRepository(
             settlements = database.settlementDao().getAll(),
             importBatches = database.importDao().getBatches(),
             importedTransactions = database.importDao().getTransactions(),
-            replayMarkers = database.syncMessageDao().getAll()
+            replayMarkers = database.syncMessageDao().getAll(),
+            bankCards = database.bankCardDao().getAll()
         )
         return PortableBackupCodec.encode(identity, payload, backupPassword)
     }
@@ -68,6 +69,7 @@ class BackupRepository(
             if (payload.importBatches.isNotEmpty()) database.importDao().insertBatches(payload.importBatches)
             if (payload.importedTransactions.isNotEmpty()) database.importDao().insertTransactions(payload.importedTransactions)
             if (payload.replayMarkers.isNotEmpty()) database.syncMessageDao().insertAll(payload.replayMarkers)
+            if (payload.bankCards.isNotEmpty()) database.bankCardDao().insertAll(payload.bankCards)
         }
         return try {
             // Commit the database first. If device-key wrapping fails, restore the

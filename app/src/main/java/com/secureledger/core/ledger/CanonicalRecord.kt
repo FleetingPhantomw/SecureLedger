@@ -31,6 +31,11 @@ object CanonicalRecord {
         "note" to payload.note,
         "account" to payload.account,
         "paymentChannel" to payload.paymentChannel,
+        "paymentChannelCode" to payload.paymentChannelCode,
+        "bankCardId" to payload.bankCardId,
+        "bankCardDisplaySnapshot" to payload.bankCardDisplaySnapshot,
+        "primaryCategoryCode" to payload.primaryCategoryCode,
+        "legacyCategory" to payload.legacyCategory,
         "orderId" to payload.orderId,
         "payments" to payload.payments.sortedWith(compareBy<PaymentDetail> { it.channel }.thenBy { it.amountCents })
             .joinToString(";") { "${text(it.channel)},${it.amountCents},${it.isBankDirect}" },
@@ -76,7 +81,7 @@ object CanonicalRecord {
 /** Cleartext transaction fields. This object is encrypted before persistence. */
 @Serializable
 data class PlainRecordPayload(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val recordType: String,
     val amountCents: Long,
     val category: String,
@@ -84,6 +89,11 @@ data class PlainRecordPayload(
     val note: String,
     val account: String,
     val paymentChannel: String,
+    val paymentChannelCode: String = PaymentChannelCode.fromLegacy(paymentChannel).name,
+    val bankCardId: String? = null,
+    val bankCardDisplaySnapshot: String? = null,
+    val primaryCategoryCode: String = ExpenseCategoryCode.fromLegacy(category).name,
+    val legacyCategory: String? = category.takeIf { it != ExpenseCategoryCode.fromLegacy(it).displayName },
     val orderId: String? = null,
     val payments: List<PaymentDetail> = emptyList(),
     val voucherRefs: List<String> = emptyList(),

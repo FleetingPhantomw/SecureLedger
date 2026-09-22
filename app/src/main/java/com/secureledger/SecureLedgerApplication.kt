@@ -15,6 +15,7 @@ import com.secureledger.data.repository.InvitationRepository
 import com.secureledger.integration.network.LanSyncController
 import com.secureledger.integration.network.RelaySyncClient
 import com.secureledger.data.repository.BackupRepository
+import com.secureledger.data.repository.BankCardRepository
 
 class SecureLedgerApplication : Application() {
     val keyManager by lazy { KeyManager(this) }
@@ -31,4 +32,5 @@ class SecureLedgerApplication : Application() {
     val lanSyncController by lazy { LanSyncController(this) }
     val relaySyncClient by lazy { RelaySyncClient() }
     val backupRepository by lazy { BackupRepository(database, keyManager) }
+    val bankCardRepository by lazy { BankCardRepository(database.bankCardDao()) }
 }

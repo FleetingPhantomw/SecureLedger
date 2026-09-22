@@ -14,6 +14,7 @@ import com.secureledger.data.entity.ProcessedSyncMessageEntity
 import com.secureledger.data.entity.ImportBatchEntity
 import com.secureledger.data.entity.ImportedTransactionEntity
 import com.secureledger.data.entity.ProjectKeyEntity
+import com.secureledger.data.entity.BankCardEntity
 
 @Database(
     entities = [
@@ -24,9 +25,10 @@ import com.secureledger.data.entity.ProjectKeyEntity
         ProcessedSyncMessageEntity::class,
         ImportBatchEntity::class,
         ImportedTransactionEntity::class,
-        ProjectKeyEntity::class
+        ProjectKeyEntity::class,
+        BankCardEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,13 +38,14 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun syncMessageDao(): com.secureledger.data.dao.SyncMessageDao
     abstract fun importDao(): com.secureledger.data.dao.ImportDao
     abstract fun projectKeyDao(): com.secureledger.data.dao.ProjectKeyDao
+    abstract fun bankCardDao(): com.secureledger.data.dao.BankCardDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
 
         fun getInstance(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "secureledger.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
                 .also { instance = it }
         }
@@ -86,6 +89,14 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE project_members ADD COLUMN agreementPublicKey TEXT NOT NULL DEFAULT ''")
                 database.execSQL("CREATE TABLE IF NOT EXISTS project_keys (projectId TEXT NOT NULL PRIMARY KEY, encryptedKey TEXT NOT NULL, nonce TEXT NOT NULL, keyFingerprint TEXT NOT NULL, addedAt INTEGER NOT NULL, FOREIGN KEY(projectId) REFERENCES projects(projectId) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            }
+        }
+
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS bank_cards (id TEXT NOT NULL PRIMARY KEY, bankName TEXT NOT NULL, cardAlias TEXT NOT NULL, lastFourDigits TEXT NOT NULL, enabled INTEGER NOT NULL, createdAt INTEGER NOT NULL)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_bank_cards_enabled ON bank_cards(enabled)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_bank_cards_createdAt ON bank_cards(createdAt)")
             }
         }
     }

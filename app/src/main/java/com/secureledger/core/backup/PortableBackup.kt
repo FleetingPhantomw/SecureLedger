@@ -16,6 +16,7 @@ import com.secureledger.data.entity.ProjectEntity
 import com.secureledger.data.entity.ProjectKeyEntity
 import com.secureledger.data.entity.ProjectMemberEntity
 import com.secureledger.data.entity.SettlementEntity
+import com.secureledger.data.entity.BankCardEntity
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.security.SecureRandom
@@ -48,7 +49,8 @@ data class PortableBackupPayload(
     val settlements: List<SettlementEntity>,
     val importBatches: List<ImportBatchEntity>,
     val importedTransactions: List<ImportedTransactionEntity>,
-    val replayMarkers: List<ProcessedSyncMessageEntity>
+    val replayMarkers: List<ProcessedSyncMessageEntity>,
+    val bankCards: List<BankCardEntity> = emptyList()
 )
 
 @Serializable
