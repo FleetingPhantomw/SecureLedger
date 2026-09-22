@@ -66,14 +66,14 @@ class LedgerRepository(
         payload: PlainRecordPayload,
         projectId: String = DEFAULT_PROJECT
     ): SecureRecord {
-        require(payload.amountCents >= 0) { "Amount cannot be negative; use recordType to distinguish income/expense" }
-        require(payload.payments.all { it.amountCents >= 0 }) { "Payment components cannot be negative" }
+        require(payload.amountCents >= 0) { "金额不能为负数" }
+        require(payload.payments.all { it.amountCents >= 0 }) { "支付明细金额不能为负数" }
         require(payload.payments.isEmpty() || payload.payments.sumOf { it.amountCents } == payload.amountCents) {
-            "Payment components must equal the transaction amount"
+            "支付明细合计必须等于交易金额"
         }
         val encryptionKey = projectKeys?.keyFor(identity, projectId)
             ?: identity.masterKey.takeIf { projectId == DEFAULT_PROJECT }
-            ?: error("Project key is unavailable")
+            ?: error("当前项目暂时无法打开")
         val previous = dao.getLastByAuthorAndProject(identity.userId, projectId)?.toDomain()
         val sequence = (previous?.authorSequence ?: 0) + 1
         val recordId = "r_" + UUID.randomUUID().toString()
@@ -135,7 +135,7 @@ class LedgerRepository(
 
     /** Appends a signed correction record while leaving the target immutable. */
     suspend fun addCorrection(identity: KeyManager.UserIdentity, request: CorrectionRequest): SecureRecord {
-        val target = dao.getById(request.targetRecordId) ?: error("Target record does not exist")
+        val target = dao.getById(request.targetRecordId) ?: error("原始记录不存在")
         require(target.recordType != "CORRECTION") { "不能更正另一条更正记录" }
         require(target.authorId == identity.userId) { "多人账本中只有原记录作者可以提交更正" }
         val key = projectKeys?.keyFor(identity, target.projectId) ?: identity.masterKey

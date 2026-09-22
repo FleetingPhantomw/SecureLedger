@@ -73,7 +73,7 @@ fun ProjectAccessScreen(
             }
         } else {
             onIssueInvitation(project.projectId, value) { result ->
-                result.onSuccess { output = it; message = "邀请已加密并签名"; onLoadMembers(project.projectId) }
+                result.onSuccess { output = it; message = "邀请已生成"; onLoadMembers(project.projectId) }
                     .onFailure { message = it.message ?: "生成邀请失败" }
             }
         }
@@ -92,15 +92,15 @@ fun ProjectAccessScreen(
         ) {
             if (project == null) {
                 Text("第一步：向项目创建者出示加入请求", style = MaterialTheme.typography.titleMedium)
-                Text("请求绑定你的 Ed25519 签名公钥与 X25519 密钥协商公钥，不包含私钥。")
+                Text("此二维码只包含加入项目所需的公开身份信息。")
             } else {
                 Text(project.name, style = MaterialTheme.typography.headlineSmall)
-                Text("扫描新成员的 SLJ1 加入请求后，项目 AES 密钥会仅对该成员加密，并由项目创建者签名。")
+                Text("扫描新成员的加入请求，确认后生成一次性项目邀请。")
                 Text("成员（${members.size}）", style = MaterialTheme.typography.titleMedium)
                 members.forEach { member ->
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp)) {
-                            Text("${member.displayName} · ${member.role}")
+                            Text("${member.displayName} · ${roleLabel(member.role)}")
                             Text(member.userId, style = MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -111,13 +111,13 @@ fun ProjectAccessScreen(
                     Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (project == null) "我的加入请求" else "给新成员的项目邀请", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(8.dp))
-                        if (qr != null) Image(qr.asImageBitmap(), "密钥交换二维码", Modifier.size(260.dp))
+                        if (qr != null) Image(qr.asImageBitmap(), "项目邀请二维码", Modifier.size(260.dp))
                         else Text("内容超过单个二维码容量，请使用复制文本。", color = MaterialTheme.colorScheme.error)
                         Button(onClick = { copy(context, output) }, modifier = Modifier.fillMaxWidth()) { Text("复制") }
                     }
                 }
             }
-            Text(if (project == null) "第二步：扫描创建者返回的 SLI1 邀请" else "扫描或粘贴新成员的 SLJ1 请求", style = MaterialTheme.typography.titleMedium)
+            Text(if (project == null) "第二步：扫描创建者返回的邀请" else "扫描或粘贴新成员的请求", style = MaterialTheme.typography.titleMedium)
             Button(onClick = {
                 scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false).setOrientationLocked(false))
             }, modifier = Modifier.fillMaxWidth()) { Text("扫码") }
@@ -128,6 +128,12 @@ fun ProjectAccessScreen(
             message?.let { Text(it, color = if (it.contains("失败") || it.contains("无效")) MaterialTheme.colorScheme.error else Color(0xFF137333)) }
         }
     }
+}
+
+private fun roleLabel(role: String): String = when (role) {
+    "OWNER" -> "创建者"
+    "MEMBER" -> "成员"
+    else -> role
 }
 
 private fun createQr(value: String): Bitmap? = runCatching {

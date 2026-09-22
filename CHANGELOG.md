@@ -36,4 +36,11 @@
 - Kept unknown legacy payment strings under an internal compatibility code that is not offered for new records.
 - Verified the complete Settings → add-card → structured-record → detail-snapshot path on the API 35 emulator.
 
+### Product copy
+
+- Rewrote home, project, sync, settlement, correction, backup, and invitation copy in concise consumer-facing Chinese.
+- Replaced raw protocol statuses and enum values with actionable Chinese messages.
+- Removed cryptographic internals from ordinary home and record-detail views; technical identifiers remain collapsed behind “技术详情” in security-related screens.
+- Added friendly unlock errors for incorrect passwords and damaged local security data.
+
 Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.

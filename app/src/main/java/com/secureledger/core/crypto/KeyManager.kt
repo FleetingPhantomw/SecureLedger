@@ -89,8 +89,8 @@ class KeyManager(context: Context, storageNamespace: String = MAIN_NAMESPACE) {
     fun isInitialized(): Boolean = preferences.contains(KEY_DEVICE_ENVELOPE)
 
     fun createUser(password: CharArray): UserIdentity {
-        check(!isInitialized()) { "A local vault already exists" }
-        require(password.size >= 8) { "Use at least 8 characters for the vault password" }
+        check(!isInitialized()) { "本机账本已经创建" }
+        require(password.size >= 8) { "密码至少需要 8 位" }
         val pair = Ed25519Manager.generateKeyPair()
         val agreementPair = X25519Manager.generateKeyPair()
         val masterKey = ByteArray(32).also(random::nextBytes)
@@ -113,16 +113,16 @@ class KeyManager(context: Context, storageNamespace: String = MAIN_NAMESPACE) {
 
     fun unlockProfiled(password: CharArray): ProfiledUnlock {
         val totalStarted = SystemClock.elapsedRealtime()
-        check(isInitialized()) { "No local vault exists" }
+        check(isInitialized()) { "本机账本尚未创建" }
         val publicKey = preferences.getString(KEY_PUBLIC_KEY, null)?.decodeBase64()
-            ?: error("Vault identity is missing")
-        val userId = preferences.getString(KEY_USER_ID, null) ?: error("Vault user id is missing")
+            ?: error("本机身份信息缺失")
+        val userId = preferences.getString(KEY_USER_ID, null) ?: error("本机身份信息缺失")
         val keystoreStarted = SystemClock.elapsedRealtime()
         val envelopeBytes = unwrapFromDevice(
             preferences.getString(KEY_DEVICE_ENVELOPE, null)?.decodeBase64()
-                ?: error("Vault envelope is missing"),
+                ?: error("本机安全数据缺失"),
             preferences.getString(KEY_DEVICE_NONCE, null)?.decodeBase64()
-                ?: error("Vault nonce is missing")
+                ?: error("本机安全数据缺失")
         )
         val keystoreMs = SystemClock.elapsedRealtime() - keystoreStarted
         val envelope = PasswordEnvelope.decode(envelopeBytes)
@@ -139,7 +139,7 @@ class KeyManager(context: Context, storageNamespace: String = MAIN_NAMESPACE) {
         val identityStarted = SystemClock.elapsedRealtime()
         val seed = AesGcmManager.decrypt(masterKey, envelope.seedCiphertext, aad("identity"))
         check(Ed25519Manager.publicKeyFromSeed(seed).contentEquals(publicKey)) {
-            "Vault identity verification failed"
+            "本机身份验证失败"
         }
         val identityMs = SystemClock.elapsedRealtime() - identityStarted
         val agreementStarted = SystemClock.elapsedRealtime()

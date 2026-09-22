@@ -41,9 +41,9 @@ class SyncRepository(
     private val random = SecureRandom()
 
     suspend fun export(identity: KeyManager.UserIdentity, projectId: String): String {
-        require(projectDao.getProject(projectId) != null) { "Project does not exist" }
+        require(projectDao.getProject(projectId) != null) { "项目不存在" }
         val member = projectDao.getMember(projectId, identity.userId)
-        require(member?.publicKey == identity.publicKey.encodeBase64()) { "Current identity is not a project member" }
+        require(member?.publicKey == identity.publicKey.encodeBase64()) { "当前用户不是项目成员" }
         val records = recordDao.getAllByProject(projectId).map(LedgerRecordEntity::toDomain)
         val syncPackage = SecureSyncPackage.sign(
             protocolVersion = SyncPackageValidator.SUPPORTED_PROTOCOL,

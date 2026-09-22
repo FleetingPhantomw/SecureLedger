@@ -81,6 +81,7 @@ import com.secureledger.data.repository.LedgerRepository
 import com.secureledger.data.repository.ProjectRepository
 import com.secureledger.data.repository.SettlementRepository
 import com.secureledger.data.repository.SyncImportResult
+import com.secureledger.data.repository.SyncImportStatus
 import com.secureledger.data.repository.SyncRepository
 import com.secureledger.data.repository.ImportRepository
 import com.secureledger.data.repository.ImportedTransactionView
@@ -214,7 +215,7 @@ private fun UnlockScreen(
             Spacer(Modifier.height(8.dp))
             Text("本地优先的可验证安全账本", style = MaterialTheme.typography.bodyLarge)
             Spacer(Modifier.height(28.dp))
-            Text(if (firstUse) "创建本地保险库" else "解锁本地保险库", style = MaterialTheme.typography.titleLarge)
+            Text(if (firstUse) "创建本地账本" else "解锁本地账本", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(12.dp))
             OutlinedTextField(password, { password = it; onInputChanged() }, label = { Text("密码（至少 8 位）") },
                 enabled = !isWorking, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
@@ -258,12 +259,12 @@ private fun UnlockScreen(
                 }
                 if (restoreVisible) {
                     TextButton(enabled = !isWorking, onClick = { restoreVisible = false; backupPassword = "" }, modifier = Modifier.fillMaxWidth()) {
-                        Text("取消恢复，创建新保险库")
+                        Text("取消恢复，创建新账本")
                     }
                 }
             }
             Spacer(Modifier.height(20.dp))
-            Text("密钥由 Argon2id 与 Android Keystore 共同保护；账目载荷使用 AES-256-GCM 加密。",
+            Text("密码和本机安全模块共同保护你的本地数据。",
                 style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -465,7 +466,7 @@ private fun LedgerShell(
     ) { padding ->
         when (tab) {
             Tab.HOME -> HomeScreen(
-                padding, records, report, identity,
+                padding, records, report,
                 onOpenImport = { importVisible = true },
                 onOpenReconciliation = { reconciliationVisible = true },
                 onOpenOcr = { ocrVisible = true },
@@ -509,25 +510,22 @@ private fun HomeScreen(
     padding: PaddingValues,
     records: List<DecryptedRecord>,
     report: IntegrityReport?,
-    identity: KeyManager.UserIdentity,
     onOpenImport: () -> Unit,
     onOpenReconciliation: () -> Unit,
     onOpenOcr: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("你好，${identity.userId.takeLast(8)}", style = MaterialTheme.typography.titleLarge)
+        Text("欢迎回来", style = MaterialTheme.typography.titleLarge)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MetricCard("账目", records.size.toString(), Modifier.weight(1f))
-            MetricCard("链状态", if (report?.isValid != false) "正常" else "异常", Modifier.weight(1f))
+            MetricCard("数据状态", if (report?.isValid != false) "正常" else "需检查", Modifier.weight(1f))
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp)) {
-                Text("可信账本", style = MaterialTheme.typography.titleMedium)
+                Text("本地数据保护", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(6.dp))
-                Text("每笔账目都由 AES-GCM 保护，并通过 SHA-256 哈希链与 Ed25519 签名固定历史。")
-                Spacer(Modifier.height(10.dp))
-                Text("Merkle Root: ${report?.merkleRoot?.take(20) ?: "尚未验证"}…", style = MaterialTheme.typography.bodySmall)
+                Text("账目默认只保存在本机。保存后的原始记录保持不变，如需修改会留下更正记录。")
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -576,7 +574,7 @@ private fun ProjectScreen(
 ) {
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("项目账本", style = MaterialTheme.typography.headlineSmall)
-        Text("每个项目都有独立密钥与成员公钥，用于安全同步和多人结算确认。", style = MaterialTheme.typography.bodyMedium)
+        Text("和成员共同记账、同步记录并完成分摊。", style = MaterialTheme.typography.bodyMedium)
         Button(onClick = onCreate, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, "新建项目"); Spacer(Modifier.width(8.dp)); Text("新建多人项目") }
         Button(onClick = onJoin, modifier = Modifier.fillMaxWidth()) { Text("加入已有项目") }
         if (projects.isEmpty()) Text("还没有项目", style = MaterialTheme.typography.bodySmall)
@@ -587,11 +585,10 @@ private fun ProjectScreen(
                     Text(if (project.projectId == ProjectRepository.PERSONAL_PROJECT_ID) "个人账本 · 本机" else "多人项目 · ${project.projectId.takeLast(8)}",
                         style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(6.dp))
-                    Text("创建者：${project.createdBy}", style = MaterialTheme.typography.bodySmall)
                     if (project.projectId != ProjectRepository.PERSONAL_PROJECT_ID) {
                         Spacer(Modifier.height(8.dp))
                         Button(onClick = { onManage(project) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("成员与安全邀请")
+                            Text("成员与邀请")
                         }
                         Spacer(Modifier.height(6.dp))
                         Button(onClick = { onSettle(project) }, modifier = Modifier.fillMaxWidth()) {
@@ -649,7 +646,7 @@ private fun SyncScreen(
             Spacer(Modifier.width(8.dp))
             Text("安全同步中心", style = MaterialTheme.typography.headlineSmall)
         }
-        Text("同步包包含发送者公钥、随机 nonce、时间戳、记录集合、Merkle Root 和 Ed25519 签名。导入通过全部检查后才会写入。")
+        Text("通过二维码与其他设备交换账目。收到的数据通过安全验证后才会写入。")
         projects.forEach { project ->
             Card(Modifier.fillMaxWidth()) {
                 Row(
@@ -666,7 +663,7 @@ private fun SyncScreen(
                             result.onSuccess { exported = it; exportedProjectId = project.projectId; operationError = null }
                                 .onFailure { operationError = it.message ?: "同步包生成失败" }
                         }
-                    }) { Text("生成 QR") }
+                    }) { Text("生成二维码") }
                 }
             }
         }
@@ -677,18 +674,17 @@ private fun SyncScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("已签名同步包", style = MaterialTheme.typography.titleMedium)
+                    Text("待同步数据", style = MaterialTheme.typography.titleMedium)
                     if (qrBitmap != null) {
                         Image(qrBitmap.asImageBitmap(), "SecureLedger 同步二维码", Modifier.size(260.dp))
                     } else {
                         Text("数据超过单个二维码容量，请使用复制同步包。", color = MaterialTheme.colorScheme.error)
                     }
-                    Text("编码长度：${packageText.length} 字符", style = MaterialTheme.typography.bodySmall)
                     Button(onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("SecureLedger Sync", packageText))
                         Toast.makeText(context, "同步包已复制", Toast.LENGTH_SHORT).show()
-                    }, modifier = Modifier.fillMaxWidth()) { Text("复制同步包") }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("复制同步数据") }
                 }
             }
         }
@@ -711,7 +707,7 @@ private fun SyncScreen(
         OutlinedTextField(
             value = manualInput,
             onValueChange = { manualInput = it },
-            label = { Text("粘贴 SL1 同步包") },
+            label = { Text("粘贴同步数据") },
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
             maxLines = 6
@@ -722,12 +718,11 @@ private fun SyncScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        if (result.accepted) "同步包验证通过" else "同步包已拒绝：${result.status}",
+                        if (result.accepted) "同步完成" else syncStatusMessage(result.status),
                         color = if (result.accepted) Color(0xFF137333) else MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text("新增 ${result.importedRecords} 条，已存在 ${result.duplicateRecords} 条")
-                    result.details.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }
@@ -740,7 +735,7 @@ private fun SyncScreen(
             onRelayUpload = onRelayUpload,
             onRelayDownload = onRelayDownload
         )
-        Text("安全策略：不支持的协议、过期时间戳、签名错误、哈希链异常、Merkle 不一致、重放包或无法解密的记录都会被拒绝。", style = MaterialTheme.typography.bodySmall)
+        Text("重复、过期、损坏或来源异常的数据会被拒绝。", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -756,6 +751,15 @@ private fun createQrBitmap(value: String): Bitmap? = runCatching {
         setPixels(pixels, 0, matrix.width, 0, 0, matrix.width, matrix.height)
     }
 }.getOrNull()
+
+private fun syncStatusMessage(status: SyncImportStatus): String = when (status) {
+    SyncImportStatus.ACCEPTED -> "同步完成"
+    SyncImportStatus.REPLAY_REJECTED -> "这份数据已经导入过"
+    SyncImportStatus.VALIDATION_REJECTED -> "部分记录未通过安全验证"
+    SyncImportStatus.PROJECT_UNKNOWN -> "本机尚未加入对应项目"
+    SyncImportStatus.KEY_INCOMPATIBLE -> "当前设备无法读取这份数据"
+    SyncImportStatus.MALFORMED -> "同步数据格式不正确"
+}
 
 private data class ParticipantDraft(val id: String, val paid: String, val owed: String)
 
@@ -812,7 +816,7 @@ private fun SettlementScreen(
                         OutlinedTextField(
                             value = draft.id,
                             onValueChange = { value -> drafts = drafts.updated(index, draft.copy(id = value)) },
-                            label = { Text("成员 ID / 公钥指纹") },
+                            label = { Text("成员身份编号") },
                             modifier = Modifier.fillMaxWidth()
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -857,15 +861,13 @@ private fun SettlementScreen(
                         }
                     }.onFailure { error = it.message ?: "请输入有效金额" }
                 }
-            ) { Text("计算、签名并保存结算") }
+            ) { Text("计算并保存结算") }
             proof?.let { settlement ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("结算凭证已签名保存", style = MaterialTheme.typography.titleMedium)
-                        Text("状态：${if (settlement.verifyHash() && settlement.verifySignatures()) "有效" else "异常"}")
-                        Text("Merkle Root：${settlement.ledgerMerkleRoot.take(20)}…", style = MaterialTheme.typography.bodySmall)
-                        Text("Proof Hash：${settlement.hash.take(20)}…", style = MaterialTheme.typography.bodySmall)
-                        Text("独立签名：${settlement.signatures.map { it.signerId }.distinct().size}/${settlement.participants.distinct().size}")
+                        Text("结算方案已保存", style = MaterialTheme.typography.titleMedium)
+                        Text("状态：${if (settlement.verifyHash() && settlement.verifySignatures()) "有效" else "需检查"}")
+                        Text("成员确认：${settlement.signatures.map { it.signerId }.distinct().size}/${settlement.participants.distinct().size}")
                         settlement.transfers.forEach { transfer ->
                             Text("${transfer.from} → ${transfer.to}：¥${formatCents(transfer.cents)}")
                         }
@@ -878,9 +880,9 @@ private fun SettlementScreen(
             }
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("多人独立签名", style = MaterialTheme.typography.titleMedium)
-                    Text("成员先扫描待确认凭证并签名，再由创建者扫描返回包合并。签名前会核对成员公钥及本机项目 Merkle Root。", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(approvalInput, { approvalInput = it }, label = { Text("粘贴 SLS1 会签包") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                    Text("多人确认", style = MaterialTheme.typography.titleMedium)
+                    Text("成员扫描待确认内容并确认，再由创建者合并返回的数据。", style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(approvalInput, { approvalInput = it }, label = { Text("粘贴确认数据") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             approvalScanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("扫描 AA 会签包"))
@@ -890,20 +892,20 @@ private fun SettlementScreen(
                                 result.onSuccess { approvalOutput = it; error = null }
                                     .onFailure { error = it.message ?: "会签失败" }
                             }
-                        }, modifier = Modifier.weight(1f)) { Text("验证并签名") }
+                        }, modifier = Modifier.weight(1f)) { Text("确认") }
                     }
                     Button(onClick = {
                         onMerge(approvalInput) { result ->
                             result.onSuccess { proof = it; approvalOutput = onEncode(it).getOrNull(); error = null }
                                 .onFailure { error = it.message ?: "签名合并失败" }
                         }
-                    }, modifier = Modifier.fillMaxWidth()) { Text("合并返回的成员签名") }
+                    }, modifier = Modifier.fillMaxWidth()) { Text("合并成员确认") }
                     approvalOutput?.let { encoded ->
                         approvalQr?.let { Image(it.asImageBitmap(), "AA 会签二维码", Modifier.size(260.dp).align(Alignment.CenterHorizontally)) }
                         OutlinedButton(onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("SecureLedger AA approval", encoded))
-                        }, modifier = Modifier.fillMaxWidth()) { Text("复制当前会签包") }
+                        }, modifier = Modifier.fillMaxWidth()) { Text("复制确认数据") }
                     }
                 }
             }
@@ -927,7 +929,7 @@ private fun CreateProjectScreen(onBack: () -> Unit, onSave: (String) -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     Scaffold(topBar = { TopAppBar(title = { Text("新建多人项目") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("创建后当前用户会以 OWNER 身份加入，可通过收件人公钥安全邀请其他成员。")
+            Text("创建后，你可以邀请成员共同记账和结算。")
             OutlinedTextField(name, { name = it }, label = { Text("项目名称") }, modifier = Modifier.fillMaxWidth())
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             Button(onClick = {
@@ -1059,7 +1061,7 @@ private fun AddRecordScreen(
                         voucherRefs = vouchers, tags = tags.split(',', '，').map(String::trim).filter(String::isNotBlank),
                         transactionTime = time), projectId)
                 }.onFailure { error = it.message ?: "金额格式错误" }
-            }) { Text("加密并保存") }
+            }) { Text("保存") }
         }
     }
 }
@@ -1070,7 +1072,7 @@ private fun RecordDetailScreen(record: DecryptedRecord, onBack: () -> Unit, onCo
     Scaffold(topBar = { TopAppBar(title = { Text("账目详情") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(record.payload.merchant.ifBlank { "未命名商户" }, style = MaterialTheme.typography.headlineSmall)
-            Text("${record.payload.recordType} · ¥${formatCents(record.payload.amountCents)}", style = MaterialTheme.typography.titleLarge)
+            Text("${recordTypeLabel(record.payload.recordType)} · ¥${formatCents(record.payload.amountCents)}", style = MaterialTheme.typography.titleLarge)
             Text("分类：${record.payload.category}")
             Text("交易时间：${DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(record.payload.transactionTime))}")
             Text("支付方式：${record.payload.paymentChannel}")
@@ -1095,18 +1097,7 @@ private fun RecordDetailScreen(record: DecryptedRecord, onBack: () -> Unit, onCo
                     }
                 }
             }
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("密码学审计信息", style = MaterialTheme.typography.titleMedium)
-                    Text("Record ID：${record.secure.recordId}", style = MaterialTheme.typography.bodySmall)
-                    Text("Project：${record.secure.projectId}", style = MaterialTheme.typography.bodySmall)
-                    Text("Author sequence：${record.secure.authorSequence}", style = MaterialTheme.typography.bodySmall)
-                    Text("Previous hash：${record.secure.previousHash}", style = MaterialTheme.typography.bodySmall)
-                    Text("Record hash：${record.secure.recordHash}", style = MaterialTheme.typography.bodySmall)
-                    Text("Ed25519 signature：${record.secure.signature.take(32)}…", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            Button(onClick = onCorrect, modifier = Modifier.fillMaxWidth()) { Text("追加更正记录") }
+            Button(onClick = onCorrect, modifier = Modifier.fillMaxWidth()) { Text("更正此记录") }
         }
     }
 }
@@ -1124,7 +1115,7 @@ private fun CorrectionScreen(
     var error by remember { mutableStateOf<String?>(null) }
     Scaffold(topBar = { TopAppBar(title = { Text("追加更正记录") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("原始记录 ${target.secure.recordId.takeLast(12)} 保持不变；本次操作只会追加一条签名更正记录。")
+            Text("原始记录保持不变，本次修改会作为新的更正记录保存。")
             Text("当前有效金额：¥$currentAmount", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(newAmount, { newAmount = it }, label = { Text("更正后金额（元）") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(reason, { reason = it }, label = { Text("更正原因") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
@@ -1138,38 +1129,53 @@ private fun CorrectionScreen(
                         result.onFailure { error = it.message ?: "更正追加失败" }
                     }
                 }.onFailure { error = it.message ?: "更正失败" }
-            }) { Text("签名并追加更正") }
+            }) { Text("保存更正") }
         }
     }
 }
 
 @Composable
 private fun SecurityScreen(padding: PaddingValues, identity: KeyManager.UserIdentity, report: IntegrityReport?, verify: () -> Unit) {
+    var showTechnicalDetails by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Security, "安全中心", tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)); Text("安全中心", style = MaterialTheme.typography.headlineSmall) }
         Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-            Text("当前用户公钥指纹", style = MaterialTheme.typography.labelLarge)
-            Text(com.secureledger.core.crypto.HashManager.sha256(identity.publicKey).copyOf(8).joinToString("") { "%02x".format(it) }, style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(8.dp)); Text("身份：${identity.userId}")
+            Text("本机身份", style = MaterialTheme.typography.labelLarge)
+            Text(identity.userId)
         } }
         Button(onClick = verify, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Lock, "验证"); Spacer(Modifier.width(8.dp)); Text("验证账本完整性") }
         report?.let { current ->
             Text(if (current.isValid) "验证通过：${current.checkedRecords} 条记录" else "发现 ${current.issues.size} 个问题",
                 color = if (current.isValid) Color(0xFF137333) else MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.titleMedium)
-            Text("Merkle Root: ${current.merkleRoot}", style = MaterialTheme.typography.bodySmall)
-            Text("最后完整性检查：${DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(current.checkedAt))}", style = MaterialTheme.typography.bodySmall)
-            Text("签名：${if (current.issues.none { it.failure.name == "SIGNATURE_INVALID" }) "通过" else "异常"} · 哈希链：${if (current.issues.none { it.failure.name == "PREVIOUS_HASH_INVALID" || it.failure.name == "SEQUENCE_GAP" }) "通过" else "异常"}")
-            current.issues.forEach { issue -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-                Text("Record ${issue.recordId}", style = MaterialTheme.typography.titleSmall)
-                Text(issue.failure.name); Text(issue.detail, style = MaterialTheme.typography.bodySmall)
-            } } }
+            Text("上次检查：${DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(current.checkedAt))}", style = MaterialTheme.typography.bodySmall)
+            if (!current.isValid) Text("部分记录未通过安全验证。", color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { showTechnicalDetails = !showTechnicalDetails }) {
+                Text(if (showTechnicalDetails) "收起技术详情" else "查看技术详情")
+            }
+            if (showTechnicalDetails) {
+                Text("Merkle Root：${current.merkleRoot}", style = MaterialTheme.typography.bodySmall)
+                Text("签名：${if (current.issues.none { it.failure.name == "SIGNATURE_INVALID" }) "通过" else "异常"} · 哈希链：${if (current.issues.none { it.failure.name == "PREVIOUS_HASH_INVALID" || it.failure.name == "SEQUENCE_GAP" }) "通过" else "异常"}")
+                current.issues.forEach { issue -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
+                    Text("记录 ${issue.recordId}", style = MaterialTheme.typography.titleSmall)
+                    Text(issue.failure.name); Text(issue.detail, style = MaterialTheme.typography.bodySmall)
+                } } }
+                Text("检查项：recordHash、Ed25519、previousHash、序列连续性和 AES-GCM 认证标签。", style = MaterialTheme.typography.bodySmall)
+            }
         }
-        Text("安全验证会分别检查 recordHash、Ed25519 签名、previousHash、序列连续性和 AES-GCM 认证标签。", style = MaterialTheme.typography.bodySmall)
+        Text("安全验证会检查记录是否完整、来源是否可信，以及历史是否连续。", style = MaterialTheme.typography.bodySmall)
     }
 }
 
 private fun formatTime(value: Long): String = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(value))
+
+private fun recordTypeLabel(value: String): String = when (value) {
+    "EXPENSE" -> "支出"
+    "INCOME" -> "收入"
+    "TRANSFER" -> "转账"
+    "CORRECTION" -> "更正"
+    else -> value
+}
 
 private fun readBounded(stream: java.io.InputStream, maxBytes: Int): ByteArray {
     val output = ByteArrayOutputStream()

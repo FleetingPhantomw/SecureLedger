@@ -105,12 +105,22 @@ internal class UnlockViewModel(
                 _state.value = success
                 Log.d("SecureLedgerPerf", "unlockFlow total=${success.totalMs}ms argon2=${success.unlockPerformance?.argon2Ms ?: -1}ms")
             }.onFailure { failure ->
-                _state.value = UnlockUiState.Error(failure.message ?: "操作失败")
+                _state.value = UnlockUiState.Error(userFacingMessage(failure))
             }
         }
     }
 
     private fun zeroPerformance() = KeyManager.UnlockPerformance(0, 0, 0, 0, 0, 0)
+
+    private fun userFacingMessage(failure: Throwable): String {
+        val message = failure.message.orEmpty()
+        return when {
+            message.contains("两次") || message.contains("至少") || message.contains("备份") -> message
+            message.contains("tag", ignoreCase = true) || message.contains("mac", ignoreCase = true) ->
+                "密码不正确，或本地数据已损坏"
+            else -> "无法打开本地账本，请重试"
+        }
+    }
 
     class Factory(
         private val keyManager: KeyManager,

@@ -65,6 +65,7 @@ fun SettingsScreen(
     var cardAlias by remember { mutableStateOf("") }
     var lastFourDigits by remember { mutableStateOf("") }
     var pendingDelete by remember { mutableStateOf<BankCardEntity?>(null) }
+    var showIdentityDetails by remember { mutableStateOf(false) }
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val bytes = pendingBytes
         if (uri != null && bytes != null) {
@@ -90,10 +91,15 @@ fun SettingsScreen(
             Text("身份与隐私", style = MaterialTheme.typography.headlineSmall)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("用户：${identity.userId}")
-                    Text("Ed25519：${HashManager.sha256Hex(identity.publicKey).take(16)}", style = MaterialTheme.typography.bodySmall)
-                    Text("X25519：${HashManager.sha256Hex(identity.agreementPublicKey).take(16)}", style = MaterialTheme.typography.bodySmall)
-                    Text("Local First：OCR、账目和私钥默认不上传。", style = MaterialTheme.typography.bodySmall)
+                    Text("身份编号：${identity.userId}")
+                    Text("账目、图片识别和身份信息默认仅保存在本机。", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { showIdentityDetails = !showIdentityDetails }) {
+                        Text(if (showIdentityDetails) "收起技术详情" else "查看技术详情")
+                    }
+                    if (showIdentityDetails) {
+                        Text("Ed25519：${HashManager.sha256Hex(identity.publicKey).take(16)}", style = MaterialTheme.typography.bodySmall)
+                        Text("X25519：${HashManager.sha256Hex(identity.agreementPublicKey).take(16)}", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
             Text("银行卡", style = MaterialTheme.typography.titleMedium)
@@ -146,7 +152,7 @@ fun SettingsScreen(
                 }
             }
             Text("加密备份与换机", style = MaterialTheme.typography.titleMedium)
-            Text("备份包含身份密钥和全部数据库内容；文件使用独立密码经 Argon2id 派生密钥后 AES-256-GCM 加密，并附 Ed25519 签名。请把密码与文件分开保管。")
+            Text("备份包含身份和全部账目，并使用独立密码加密。请把备份密码和文件分开保管。")
             OutlinedTextField(password, { password = it }, label = { Text("备份密码（至少 10 位）") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
             OutlinedTextField(confirmation, { confirmation = it }, label = { Text("确认备份密码") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
             Button(onClick = {
@@ -157,12 +163,12 @@ fun SettingsScreen(
                         createDocument.launch("SecureLedger-${System.currentTimeMillis()}.sldb")
                     }.onFailure { message = it.message ?: "备份失败" }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text("验证账本并创建备份") }
+            }, modifier = Modifier.fillMaxWidth()) { Text("创建加密备份") }
             message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-            Text("异常与恢复", style = MaterialTheme.typography.titleMedium)
-            Text("忘记保险库密码时无法绕过加密；应使用备份文件和备份密码在空安装中恢复。密码学错误不会静默忽略。", style = MaterialTheme.typography.bodySmall)
+            Text("恢复与锁定", style = MaterialTheme.typography.titleMedium)
+            Text("忘记本机密码时无法直接解锁，请使用备份文件和备份密码恢复。", style = MaterialTheme.typography.bodySmall)
             OutlinedButton(onClick = onLock, modifier = Modifier.fillMaxWidth()) { Text("立即锁定") }
-            Text("SecureLedger 1.0.0 · 数据库 v7", style = MaterialTheme.typography.bodySmall)
+            Text("SecureLedger 1.0.0", style = MaterialTheme.typography.bodySmall)
         }
     }
     pendingDelete?.let { card ->
