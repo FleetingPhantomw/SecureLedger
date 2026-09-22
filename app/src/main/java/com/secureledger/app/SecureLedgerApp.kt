@@ -99,6 +99,10 @@ import com.secureledger.integration.network.LanShareSession
 import com.secureledger.integration.network.LanSyncController
 import com.secureledger.integration.network.RelaySyncClient
 import com.secureledger.data.repository.BackupRepository
+import com.secureledger.data.repository.BankCardRepository
+import com.secureledger.data.entity.BankCardEntity
+import com.secureledger.core.ledger.ExpenseCategoryCode
+import com.secureledger.core.ledger.PaymentChannelCode
 import com.secureledger.feature.settings.SettingsScreen
 import com.secureledger.feature.auth.UnlockUiState
 import com.secureledger.feature.auth.UnlockViewModel
@@ -161,6 +165,7 @@ fun SecureLedgerApp(
             application.lanSyncController,
             application.relaySyncClient,
             application.backupRepository,
+            application.bankCardRepository,
             sharedImageUri,
             onSharedImageConsumed,
             identity!!,
@@ -278,6 +283,7 @@ private fun LedgerShell(
     lanSyncController: LanSyncController,
     relaySyncClient: RelaySyncClient,
     backupRepository: BackupRepository,
+    bankCardRepository: BankCardRepository,
     sharedImageUri: Uri?,
     onSharedImageConsumed: () -> Unit,
     identity: KeyManager.UserIdentity,
@@ -303,7 +309,7 @@ private fun LedgerShell(
         LedgerViewModel(
             repository, projectRepository, settlementRepository, syncRepository, importRepository,
             offlineTextRecognizer, orderParser, identity, invitationRepository, lanSyncController, relaySyncClient,
-            backupRepository
+            backupRepository, bankCardRepository
         )
     }
     val records by viewModel.records.collectAsStateCompat()
@@ -311,6 +317,7 @@ private fun LedgerShell(
     val report by viewModel.report.collectAsStateCompat()
     val importedTransactions by viewModel.importedTransactions.collectAsStateCompat()
     val projectMembers by viewModel.projectMembers.collectAsStateCompat()
+    val bankCards by viewModel.bankCards.collectAsStateCompat()
     val joinRequest = remember(identity.userId) { viewModel.createJoinRequest() }
     if (settingsVisible) {
         SettingsScreen(
@@ -322,7 +329,11 @@ private fun LedgerShell(
                 settingsVisible = false
                 onLock()
             },
-            onCreateBackup = viewModel::createBackup
+            onCreateBackup = viewModel::createBackup,
+            bankCards = bankCards,
+            onSaveBankCard = viewModel::saveBankCard,
+            onSetBankCardEnabled = viewModel::setBankCardEnabled,
+            onDeleteBankCard = viewModel::deleteBankCard
         )
         return
     }
@@ -397,6 +408,7 @@ private fun LedgerShell(
     if (addVisible) {
         AddRecordScreen(
             projects = projects,
+            bankCards = bankCards.filter(BankCardEntity::enabled),
             onBack = { addVisible = false },
             onSave = { payload, projectId -> viewModel.add(payload, projectId) { addVisible = false } }
         )
@@ -932,7 +944,8 @@ private fun RecordRow(record: DecryptedRecord, onOpen: (() -> Unit)? = null, onC
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text(record.payload.merchant.ifBlank { "未命名商户" }, style = MaterialTheme.typography.titleMedium)
-                Text("${record.payload.category} · ${formatTime(record.payload.transactionTime)}", style = MaterialTheme.typography.bodySmall)
+                Text("${record.payload.category} · ${record.payload.paymentChannel}", style = MaterialTheme.typography.bodySmall)
+                Text(formatTime(record.payload.transactionTime), style = MaterialTheme.typography.bodySmall)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text("¥${record.payload.amountCents / 100}.${(record.payload.amountCents % 100).toString().padStart(2, '0')}", style = MaterialTheme.typography.titleMedium)
@@ -948,6 +961,7 @@ private fun RecordRow(record: DecryptedRecord, onOpen: (() -> Unit)? = null, onC
 @Composable
 private fun AddRecordScreen(
     projects: List<ProjectEntity>,
+    bankCards: List<BankCardEntity>,
     onBack: () -> Unit,
     onSave: (PlainRecordPayload, String) -> Unit
 ) {
@@ -956,10 +970,10 @@ private fun AddRecordScreen(
     var projectId by remember { mutableStateOf(ProjectRepository.PERSONAL_PROJECT_ID) }
     var amount by remember { mutableStateOf("") }
     var merchant by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf("餐饮") }
+    var category by remember { mutableStateOf(ExpenseCategoryCode.FOOD_TOBACCO_ALCOHOL) }
     var note by remember { mutableStateOf("") }
-    var account by remember { mutableStateOf("default") }
-    var paymentChannel by remember { mutableStateOf("手动录入") }
+    var paymentChannel by remember { mutableStateOf(PaymentChannelCode.ALIPAY) }
+    var selectedBankCardId by remember { mutableStateOf<String?>(null) }
     var tags by remember { mutableStateOf("") }
     var transactionTime by remember { mutableStateOf(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.now())) }
     var vouchers by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -982,10 +996,43 @@ private fun AddRecordScreen(
             }
             OutlinedTextField(amount, { amount = it }, label = { Text("金额（元）") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(merchant, { merchant = it }, label = { Text("商户") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(category, { category = it }, label = { Text("分类") }, modifier = Modifier.fillMaxWidth())
+            Text("分类", style = MaterialTheme.typography.labelLarge)
+            ExpenseCategoryCode.entries.chunked(2).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { option ->
+                        FilterChip(
+                            selected = category == option,
+                            onClick = { category = option },
+                            label = { Text(option.displayName) }
+                        )
+                    }
+                }
+            }
             OutlinedTextField(transactionTime, { transactionTime = it }, label = { Text("实际交易时间（yyyy-MM-dd HH:mm）") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(paymentChannel, { paymentChannel = it }, label = { Text("支付渠道") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(account, { account = it }, label = { Text("账户") }, modifier = Modifier.fillMaxWidth())
+            Text("支付方式", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PaymentChannelCode.entries.filter { it != PaymentChannelCode.LEGACY_OTHER }.forEach { option ->
+                    FilterChip(
+                        selected = paymentChannel == option,
+                        onClick = { paymentChannel = option },
+                        label = { Text(option.displayName) }
+                    )
+                }
+            }
+            if (paymentChannel == PaymentChannelCode.BANK_CARD) {
+                if (bankCards.isEmpty()) {
+                    Text("请先在设置中添加并启用银行卡（仅保存银行、别名和后四位）。", color = MaterialTheme.colorScheme.error)
+                } else {
+                    Text("选择银行卡", style = MaterialTheme.typography.labelLarge)
+                    bankCards.forEach { card ->
+                        FilterChip(
+                            selected = selectedBankCardId == card.id,
+                            onClick = { selectedBankCardId = card.id },
+                            label = { Text(card.displaySnapshot) }
+                        )
+                    }
+                }
+            }
             OutlinedTextField(tags, { tags = it }, label = { Text("标签（逗号分隔）") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(note, { note = it }, label = { Text("备注") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
             OutlinedButton(onClick = { voucherPicker.launch(arrayOf("image/*", "application/pdf")) }, modifier = Modifier.fillMaxWidth()) {
@@ -998,8 +1045,17 @@ private fun AddRecordScreen(
                     check(cents >= 0) { "金额不能为负数" }
                     val time = java.time.LocalDateTime.parse(transactionTime, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
                         .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                    onSave(PlainRecordPayload(recordType = recordType, amountCents = cents, category = category,
-                        merchant = merchant, note = note, account = account, paymentChannel = paymentChannel,
+                    val bankCard = if (paymentChannel == PaymentChannelCode.BANK_CARD) {
+                        bankCards.firstOrNull { it.id == selectedBankCardId }
+                            ?: error("请选择已启用的银行卡")
+                    } else null
+                    onSave(PlainRecordPayload(recordType = recordType, amountCents = cents, category = category.displayName,
+                        merchant = merchant, note = note, account = "default",
+                        paymentChannel = paymentChannel.displayName,
+                        paymentChannelCode = paymentChannel.name,
+                        bankCardId = bankCard?.id,
+                        bankCardDisplaySnapshot = bankCard?.displaySnapshot,
+                        primaryCategoryCode = category.name,
                         voucherRefs = vouchers, tags = tags.split(',', '，').map(String::trim).filter(String::isNotBlank),
                         transactionTime = time), projectId)
                 }.onFailure { error = it.message ?: "金额格式错误" }
@@ -1017,7 +1073,8 @@ private fun RecordDetailScreen(record: DecryptedRecord, onBack: () -> Unit, onCo
             Text("${record.payload.recordType} · ¥${formatCents(record.payload.amountCents)}", style = MaterialTheme.typography.titleLarge)
             Text("分类：${record.payload.category}")
             Text("交易时间：${DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(record.payload.transactionTime))}")
-            Text("账户：${record.payload.account} · 渠道：${record.payload.paymentChannel}")
+            Text("支付方式：${record.payload.paymentChannel}")
+            record.payload.bankCardDisplaySnapshot?.let { Text("银行卡：$it") }
             if (record.payload.tags.isNotEmpty()) Text("标签：${record.payload.tags.joinToString("、")}")
             if (record.payload.note.isNotBlank()) Text("备注：${record.payload.note}")
             if (record.payload.payments.isNotEmpty()) {

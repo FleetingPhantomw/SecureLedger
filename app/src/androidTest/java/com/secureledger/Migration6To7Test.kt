@@ -4,16 +4,41 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
+import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.secureledger.data.database.AppDatabase
+import com.secureledger.data.repository.BankCardRepository
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.runBlocking
 
 /** Verifies the additive v6→v7 schema change without deleting any existing table. */
 @RunWith(AndroidJUnit4::class)
 class Migration6To7Test {
+    @Test fun bankCardCrudStoresOnlySafeReferenceData() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val room = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val repository = BankCardRepository(room.bankCardDao())
+            repository.save(null, "招商银行", "工资卡", "4821")
+            val created = room.bankCardDao().getAll().single()
+            assertEquals("招商银行 · 工资卡 · 4821", created.displaySnapshot)
+
+            repository.save(created.id, "中国银行", "日常", "1023")
+            val updated = room.bankCardDao().get(created.id)!!
+            assertEquals("中国银行 · 日常 · 1023", updated.displaySnapshot)
+            repository.setEnabled(updated, false)
+            assertFalse(room.bankCardDao().get(created.id)!!.enabled)
+            repository.delete(updated.copy(enabled = false))
+            assertTrue(room.bankCardDao().getAll().isEmpty())
+        } finally {
+            room.close()
+        }
+    }
+
     @Test fun migrationCreatesValidatedBankCardTableAndIndexes() {
         val helper = FrameworkSQLiteOpenHelperFactory().create(
             SupportSQLiteOpenHelper.Configuration.builder(ApplicationProvider.getApplicationContext())

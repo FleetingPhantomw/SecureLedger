@@ -4,14 +4,17 @@ package com.secureledger.core.ledger
 enum class PaymentChannelCode(val displayName: String) {
     ALIPAY("支付宝"),
     WECHAT("微信"),
-    BANK_CARD("银行卡");
+    BANK_CARD("银行卡"),
+    /** Compatibility marker for old free-text channels; never offered for new records. */
+    LEGACY_OTHER("其他（历史）");
 
     companion object {
         fun fromLegacy(value: String): PaymentChannelCode = when {
             value.contains("微信", ignoreCase = true) -> WECHAT
             value.contains("银行", ignoreCase = true) || value.contains("信用卡", ignoreCase = true) ||
                 value.contains("储蓄卡", ignoreCase = true) || value.contains("校园卡", ignoreCase = true) -> BANK_CARD
-            else -> ALIPAY
+            value.contains("支付宝", ignoreCase = true) -> ALIPAY
+            else -> LEGACY_OTHER
         }
     }
 }

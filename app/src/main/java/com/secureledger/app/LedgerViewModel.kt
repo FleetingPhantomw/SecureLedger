@@ -18,6 +18,7 @@ import com.secureledger.core.settlement.SettlementProof
 import com.secureledger.data.entity.ProjectEntity
 import com.secureledger.data.entity.ProjectMemberEntity
 import com.secureledger.data.repository.BackupRepository
+import com.secureledger.data.repository.BankCardRepository
 import com.secureledger.data.repository.DecryptedRecord
 import com.secureledger.data.repository.ImportRepository
 import com.secureledger.data.repository.ImportedTransactionView
@@ -27,6 +28,7 @@ import com.secureledger.data.repository.ProjectRepository
 import com.secureledger.data.repository.SettlementRepository
 import com.secureledger.data.repository.SyncImportResult
 import com.secureledger.data.repository.SyncRepository
+import com.secureledger.data.entity.BankCardEntity
 import com.secureledger.integration.network.LanShareSession
 import com.secureledger.integration.network.LanSyncController
 import com.secureledger.integration.network.RelaySyncClient
@@ -53,7 +55,8 @@ internal class LedgerViewModel(
     private val invitationRepository: InvitationRepository,
     private val lanSyncController: LanSyncController,
     private val relaySyncClient: RelaySyncClient,
-    private val backupRepository: BackupRepository
+    private val backupRepository: BackupRepository,
+    private val bankCardRepository: BankCardRepository
 ) : ViewModel() {
     private val _records = MutableStateFlow<List<DecryptedRecord>>(emptyList())
     val records: StateFlow<List<DecryptedRecord>> = _records.asStateFlow()
@@ -65,6 +68,8 @@ internal class LedgerViewModel(
     val importedTransactions: StateFlow<List<ImportedTransactionView>> = _importedTransactions.asStateFlow()
     private val _projectMembers = MutableStateFlow<List<ProjectMemberEntity>>(emptyList())
     val projectMembers: StateFlow<List<ProjectMemberEntity>> = _projectMembers.asStateFlow()
+    private val _bankCards = MutableStateFlow<List<BankCardEntity>>(emptyList())
+    val bankCards: StateFlow<List<BankCardEntity>> = _bankCards.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -78,6 +83,7 @@ internal class LedgerViewModel(
             importRepository.observeTransactions(identity).flowOn(Dispatchers.Default)
                 .collect { _importedTransactions.value = it }
         }
+        viewModelScope.launch { bankCardRepository.observeAll().collect { _bankCards.value = it } }
         // Full chain/signature/Merkle validation is intentionally deferred until after home is visible.
         viewModelScope.launch { refreshIntegrity() }
     }
@@ -189,6 +195,24 @@ internal class LedgerViewModel(
     }
     fun parseOrderText(text: String): Result<RecognizedOrder> = runCatching { orderParser.parse(text) }
     fun verify() = viewModelScope.launch { refreshIntegrity() }
+
+    fun saveBankCard(
+        id: String?,
+        bankName: String,
+        alias: String,
+        lastFour: String,
+        callback: (Result<Unit>) -> Unit
+    ) = viewModelScope.launch {
+        callback(runCatching { bankCardRepository.save(id, bankName, alias, lastFour) })
+    }
+
+    fun setBankCardEnabled(card: BankCardEntity, enabled: Boolean) = viewModelScope.launch {
+        bankCardRepository.setEnabled(card, enabled)
+    }
+
+    fun deleteBankCard(card: BankCardEntity) = viewModelScope.launch {
+        bankCardRepository.delete(card)
+    }
 
     private suspend fun refreshIntegrity() {
         val started = SystemClock.elapsedRealtime()

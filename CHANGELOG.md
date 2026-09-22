@@ -27,4 +27,13 @@
 - Preserved the existing Argon2id security parameters and documented the API 35 emulator baseline in `docs/PERFORMANCE.md`.
 - Hardened the emulator runner so instrumentation failures cannot be reported as successful runs.
 
+### Payments and categories
+
+- Replaced free-text payment entry with fixed Alipay, WeChat, and bank-card choices.
+- Replaced free-text primary categories with the fixed eight-category taxonomy.
+- Added bank-card add, edit, enable/disable, and confirmed-delete controls in Settings; only bank name, alias, and four trailing digits are accepted.
+- New bank-card transactions store the card ID plus a safe display snapshot so later card edits or deletion cannot change historical presentation.
+- Kept unknown legacy payment strings under an internal compatibility code that is not offered for new records.
+- Verified the complete Settings → add-card → structured-record → detail-snapshot path on the API 35 emulator.
+
 Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.

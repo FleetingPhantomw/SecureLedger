@@ -5,18 +5,23 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -32,6 +37,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.secureledger.core.crypto.HashManager
 import com.secureledger.core.crypto.KeyManager
+import com.secureledger.data.entity.BankCardEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -42,7 +48,11 @@ fun SettingsScreen(
     identity: KeyManager.UserIdentity,
     onBack: () -> Unit,
     onLock: () -> Unit,
-    onCreateBackup: (CharArray, (Result<ByteArray>) -> Unit) -> Unit
+    onCreateBackup: (CharArray, (Result<ByteArray>) -> Unit) -> Unit,
+    bankCards: List<BankCardEntity>,
+    onSaveBankCard: (String?, String, String, String, (Result<Unit>) -> Unit) -> Unit,
+    onSetBankCardEnabled: (BankCardEntity, Boolean) -> Unit,
+    onDeleteBankCard: (BankCardEntity) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -50,6 +60,11 @@ fun SettingsScreen(
     var confirmation by remember { mutableStateOf("") }
     var pendingBytes by remember { mutableStateOf<ByteArray?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var editingCardId by remember { mutableStateOf<String?>(null) }
+    var bankName by remember { mutableStateOf("") }
+    var cardAlias by remember { mutableStateOf("") }
+    var lastFourDigits by remember { mutableStateOf("") }
+    var pendingDelete by remember { mutableStateOf<BankCardEntity?>(null) }
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val bytes = pendingBytes
         if (uri != null && bytes != null) {
@@ -81,6 +96,55 @@ fun SettingsScreen(
                     Text("Local First：OCR、账目和私钥默认不上传。", style = MaterialTheme.typography.bodySmall)
                 }
             }
+            Text("银行卡", style = MaterialTheme.typography.titleMedium)
+            Text("只保存银行名称、别名和后四位，不保存完整卡号。历史账目保留保存时的显示快照。", style = MaterialTheme.typography.bodySmall)
+            bankCards.forEach { card ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(Modifier.weight(1f)) {
+                                Text(card.displaySnapshot, style = MaterialTheme.typography.titleSmall)
+                                Text(if (card.enabled) "记账时可选" else "已停用", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Switch(checked = card.enabled, onCheckedChange = { onSetBankCardEnabled(card, it) })
+                        }
+                        Row {
+                            TextButton(onClick = {
+                                editingCardId = card.id
+                                bankName = card.bankName
+                                cardAlias = card.cardAlias
+                                lastFourDigits = card.lastFourDigits
+                            }) { Text("编辑") }
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = { pendingDelete = card }) { Text("删除") }
+                        }
+                    }
+                }
+            }
+            OutlinedTextField(bankName, { bankName = it }, label = { Text("银行名称") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(cardAlias, { cardAlias = it }, label = { Text("别名（可选）") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(lastFourDigits, { lastFourDigits = it.filter(Char::isDigit).take(4) }, label = { Text("卡号后四位") }, modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    onSaveBankCard(editingCardId, bankName, cardAlias, lastFourDigits) { result ->
+                        result.onSuccess {
+                            message = if (editingCardId == null) "银行卡已添加" else "银行卡已更新"
+                            editingCardId = null
+                            bankName = ""
+                            cardAlias = ""
+                            lastFourDigits = ""
+                        }.onFailure { message = it.message ?: "银行卡保存失败" }
+                    }
+                }, modifier = Modifier.weight(1f)) { Text(if (editingCardId == null) "添加银行卡" else "保存修改") }
+                if (editingCardId != null) {
+                    OutlinedButton(onClick = {
+                        editingCardId = null
+                        bankName = ""
+                        cardAlias = ""
+                        lastFourDigits = ""
+                    }) { Text("取消") }
+                }
+            }
             Text("加密备份与换机", style = MaterialTheme.typography.titleMedium)
             Text("备份包含身份密钥和全部数据库内容；文件使用独立密码经 Argon2id 派生密钥后 AES-256-GCM 加密，并附 Ed25519 签名。请把密码与文件分开保管。")
             OutlinedTextField(password, { password = it }, label = { Text("备份密码（至少 10 位）") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
@@ -100,5 +164,25 @@ fun SettingsScreen(
             OutlinedButton(onClick = onLock, modifier = Modifier.fillMaxWidth()) { Text("立即锁定") }
             Text("SecureLedger 1.0.0 · 数据库 v7", style = MaterialTheme.typography.bodySmall)
         }
+    }
+    pendingDelete?.let { card ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除银行卡？") },
+            text = { Text("仅删除可选银行卡；历史账目中的银行卡显示快照不会改变。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteBankCard(card)
+                    if (editingCardId == card.id) {
+                        editingCardId = null
+                        bankName = ""
+                        cardAlias = ""
+                        lastFourDigits = ""
+                    }
+                    pendingDelete = null
+                }) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
+        )
     }
 }

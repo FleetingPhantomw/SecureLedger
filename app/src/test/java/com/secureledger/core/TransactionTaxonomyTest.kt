@@ -12,6 +12,7 @@ class TransactionTaxonomyTest {
         assertEquals(PaymentChannelCode.WECHAT, PaymentChannelCode.fromLegacy("微信支付"))
         assertEquals(PaymentChannelCode.BANK_CARD, PaymentChannelCode.fromLegacy("招商银行储蓄卡"))
         assertEquals(PaymentChannelCode.ALIPAY, PaymentChannelCode.fromLegacy("支付宝"))
+        assertEquals(PaymentChannelCode.LEGACY_OTHER, PaymentChannelCode.fromLegacy("手动录入"))
     }
 
     @Test fun legacyCategoriesMapConservatively() {
