@@ -1,4 +1,4 @@
-package com.secureledger.ui
+package com.secureledger.app
 
 import android.content.Context
 import android.net.Uri
