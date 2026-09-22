@@ -49,6 +49,14 @@ adb shell am instrument -w -r com.secureledger.test/androidx.test.runner.Android
 adb uninstall com.secureledger.test
 ```
 
+When no phone is connected, Android Studio can run the same suite on the API 35 AVD configured for this workspace:
+
+```powershell
+.\scripts\test-emulator.ps1
+```
+
+Open the repository root as a Gradle project in Android Studio or IntelliJ IDEA, select JDK 17, and use the Gradle wrapper. Local SDK and IDE metadata remain untracked.
+
 The device suite covers real Android Keystore/Room persistence, tamper detection, CSV reconciliation, LAN transfer, backup round-trip, bundled OCR/CameraX, QR scanning, recipient-bound project invitation, cross-replica sync and two-user AA co-signing.
 
 ## Privacy and recovery
