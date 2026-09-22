@@ -18,4 +18,13 @@
 - Extended encrypted record payloads and portable backups compatibly; existing ciphertext, signatures, and hash-chain fields are unchanged.
 - Added JVM taxonomy tests and an Android migration test that verifies schema indexes and preservation of existing tables.
 
+### Unlock performance
+
+- Moved Argon2id, Keystore access, backup restore, and Room opening off the Compose main thread.
+- Added rotation-safe `Idle` / `Unlocking` / `Success` / `Error` state with immediate indeterminate progress and duplicate-submit prevention.
+- Added sanitized stage timing for vault unlock, Room opening, repository readiness, and deferred integrity validation.
+- Deferred the full signature/hash-chain/Merkle scan until after the home screen is ready.
+- Preserved the existing Argon2id security parameters and documented the API 35 emulator baseline in `docs/PERFORMANCE.md`.
+- Hardened the emulator runner so instrumentation failures cannot be reported as successful runs.
+
 Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.

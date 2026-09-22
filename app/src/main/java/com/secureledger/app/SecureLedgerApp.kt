@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -58,7 +59,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -68,6 +68,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.secureledger.SecureLedgerApplication
 import com.secureledger.core.crypto.KeyManager
 import com.secureledger.core.ledger.CorrectionRequest
@@ -99,14 +100,13 @@ import com.secureledger.integration.network.LanSyncController
 import com.secureledger.integration.network.RelaySyncClient
 import com.secureledger.data.repository.BackupRepository
 import com.secureledger.feature.settings.SettingsScreen
+import com.secureledger.feature.auth.UnlockUiState
+import com.secureledger.feature.auth.UnlockViewModel
 import com.secureledger.core.backup.PortableBackupCodec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.secureledger.data.entity.ProjectEntity
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.time.Instant
 import java.time.ZoneId
@@ -127,8 +127,27 @@ fun SecureLedgerApp(
     onSharedImageConsumed: () -> Unit = {}
 ) {
     var identity by remember { mutableStateOf<KeyManager.UserIdentity?>(null) }
+    val unlockViewModel: UnlockViewModel = viewModel(
+        factory = remember(application) {
+            UnlockViewModel.Factory(
+                keyManager = application.keyManager,
+                backupRepository = { application.backupRepository },
+                prepareHome = application::prepareHome
+            )
+        }
+    )
+    val unlockState by unlockViewModel.state.collectAsState()
+    LaunchedEffect(unlockState) {
+        (unlockState as? UnlockUiState.Success)?.let { identity = it.identity }
+    }
     if (identity == null) {
-        UnlockScreen(application.keyManager, application.backupRepository) { identity = it }
+        UnlockScreen(
+            firstUse = !application.keyManager.isInitialized(),
+            state = unlockState,
+            onSubmit = unlockViewModel::submit,
+            onRestore = unlockViewModel::restore,
+            onInputChanged = unlockViewModel::clearError
+        )
     } else {
         LedgerShell(
             application.ledgerRepository,
@@ -145,37 +164,40 @@ fun SecureLedgerApp(
             sharedImageUri,
             onSharedImageConsumed,
             identity!!,
-            onLock = { identity = null }
+            onLock = {
+                unlockViewModel.reset()
+                identity = null
+            }
         )
     }
 }
 
 @Composable
 private fun UnlockScreen(
-    keyManager: KeyManager,
-    backupRepository: BackupRepository,
-    onUnlocked: (KeyManager.UserIdentity) -> Unit
+    firstUse: Boolean,
+    state: UnlockUiState,
+    onSubmit: (String, String, Boolean) -> Unit,
+    onRestore: (suspend () -> ByteArray, String, String, String) -> Unit,
+    onInputChanged: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var password by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
-    var error by remember { mutableStateOf<String?>(null) }
     var restoreVisible by remember { mutableStateOf(false) }
     var backupPassword by remember { mutableStateOf("") }
-    val firstUse = !keyManager.isInitialized()
+    val isWorking = state is UnlockUiState.Unlocking
     val restorePicker = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
-            scope.launch {
-                runCatching {
-                    require(password == confirmation) { "两次新保险库密码不一致" }
-                    val bytes = withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(it)?.use { stream -> readBounded(stream, PortableBackupCodec.MAX_BACKUP_BYTES) }
-                            ?: error("无法读取备份文件")
-                    }
-                    backupRepository.restore(bytes, backupPassword.toCharArray(), password.toCharArray())
-                }.onSuccess(onUnlocked).onFailure { failure -> error = failure.message ?: "恢复失败" }
-            }
+            onRestore(
+                {
+                    context.contentResolver.openInputStream(it)?.use { stream ->
+                        readBounded(stream, PortableBackupCodec.MAX_BACKUP_BYTES)
+                    } ?: error("无法读取备份文件")
+                },
+                backupPassword,
+                password,
+                confirmation
+            )
         }
     }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -189,40 +211,39 @@ private fun UnlockScreen(
             Spacer(Modifier.height(28.dp))
             Text(if (firstUse) "创建本地保险库" else "解锁本地保险库", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.height(12.dp))
-            OutlinedTextField(password, { password = it }, label = { Text("密码（至少 8 位）") },
-                visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(password, { password = it; onInputChanged() }, label = { Text("密码（至少 8 位）") },
+                enabled = !isWorking, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
             if (firstUse) {
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(confirmation, { confirmation = it }, label = { Text("确认密码") },
-                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(confirmation, { confirmation = it; onInputChanged() }, label = { Text("确认密码") },
+                    enabled = !isWorking, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
             }
             if (firstUse && restoreVisible) {
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(backupPassword, { backupPassword = it }, label = { Text("备份文件密码") },
-                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(backupPassword, { backupPassword = it; onInputChanged() }, label = { Text("备份文件密码") },
+                    enabled = !isWorking, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
             }
-            error?.let {
+            (state as? UnlockUiState.Error)?.message?.let {
                 Spacer(Modifier.height(10.dp)); Text(it, color = MaterialTheme.colorScheme.error)
+            }
+            if (isWorking) {
+                Spacer(Modifier.height(16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text(if ((state as UnlockUiState.Unlocking).openingLedger) "正在打开账本…" else "正在解锁…")
+                }
             }
             Spacer(Modifier.height(18.dp))
             if (!restoreVisible) {
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        runCatching {
-                            if (firstUse) {
-                                check(password == confirmation) { "两次输入的密码不一致" }
-                                keyManager.createUser(password.toCharArray())
-                            } else keyManager.unlock(password.toCharArray())
-                        }.onSuccess(onUnlocked).onFailure {
-                            error = it.message ?: "操作失败"
-                            Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    enabled = !isWorking,
+                    onClick = { onSubmit(password, confirmation, firstUse) }
                 ) { Text(if (firstUse) "创建并进入" else "解锁") }
             }
             if (firstUse) {
-                TextButton(onClick = {
+                TextButton(enabled = !isWorking, onClick = {
                     restoreVisible = true
                     if (backupPassword.isNotBlank() && password.length >= 8 && password == confirmation) {
                         restorePicker.launch(arrayOf("application/octet-stream", "text/plain"))
@@ -231,7 +252,7 @@ private fun UnlockScreen(
                     Text(if (restoreVisible) "选择 .sldb 备份并恢复" else "从加密备份恢复")
                 }
                 if (restoreVisible) {
-                    TextButton(onClick = { restoreVisible = false; backupPassword = "" }, modifier = Modifier.fillMaxWidth()) {
+                    TextButton(enabled = !isWorking, onClick = { restoreVisible = false; backupPassword = "" }, modifier = Modifier.fillMaxWidth()) {
                         Text("取消恢复，创建新保险库")
                     }
                 }

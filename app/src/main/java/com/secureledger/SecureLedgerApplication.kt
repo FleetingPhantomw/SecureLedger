@@ -16,8 +16,19 @@ import com.secureledger.integration.network.LanSyncController
 import com.secureledger.integration.network.RelaySyncClient
 import com.secureledger.data.repository.BackupRepository
 import com.secureledger.data.repository.BankCardRepository
+import android.os.SystemClock
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class SecureLedgerApplication : Application() {
+    data class HomeStartupPerformance(
+        val roomOpenMs: Long,
+        val repositoryInitializationMs: Long,
+        val personalProjectMs: Long,
+        val totalMs: Long
+    )
+
     val keyManager by lazy { KeyManager(this) }
     val database by lazy { AppDatabase.getInstance(this) }
     val projectKeyRepository by lazy { ProjectKeyRepository(database.projectKeyDao()) }
@@ -33,4 +44,24 @@ class SecureLedgerApplication : Application() {
     val relaySyncClient by lazy { RelaySyncClient() }
     val backupRepository by lazy { BackupRepository(database, keyManager) }
     val bankCardRepository by lazy { BankCardRepository(database.bankCardDao()) }
+
+    /** Opens only the storage required by the home screen, never on the main thread. */
+    suspend fun prepareHome(identity: KeyManager.UserIdentity): HomeStartupPerformance = withContext(Dispatchers.IO) {
+        val totalStarted = SystemClock.elapsedRealtime()
+        val roomStarted = SystemClock.elapsedRealtime()
+        database.openHelper.writableDatabase
+        val roomMs = SystemClock.elapsedRealtime() - roomStarted
+
+        val repositoryStarted = SystemClock.elapsedRealtime()
+        ledgerRepository
+        projectRepository
+        val repositoryMs = SystemClock.elapsedRealtime() - repositoryStarted
+
+        val projectStarted = SystemClock.elapsedRealtime()
+        projectRepository.ensurePersonalProject(identity)
+        val projectMs = SystemClock.elapsedRealtime() - projectStarted
+        HomeStartupPerformance(roomMs, repositoryMs, projectMs, SystemClock.elapsedRealtime() - totalStarted).also {
+            Log.d("SecureLedgerPerf", "home room=${it.roomOpenMs}ms repositories=${it.repositoryInitializationMs}ms personalProject=${it.personalProjectMs}ms total=${it.totalMs}ms")
+        }
+    }
 }

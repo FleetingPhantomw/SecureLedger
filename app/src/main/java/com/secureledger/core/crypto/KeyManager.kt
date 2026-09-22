@@ -1,6 +1,7 @@
 package com.secureledger.core.crypto
 
 import android.content.Context
+import android.os.SystemClock
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.io.ByteArrayOutputStream
@@ -25,6 +26,18 @@ class KeyManager(context: Context, storageNamespace: String = MAIN_NAMESPACE) {
         val agreementPublicKey: ByteArray,
         val agreementPrivateKey: ByteArray
     )
+
+    /** Sanitized timings only; no password or key material is retained. */
+    data class UnlockPerformance(
+        val keystoreUnwrapMs: Long,
+        val argon2Ms: Long,
+        val masterKeyDecryptMs: Long,
+        val identityDecryptMs: Long,
+        val agreementIdentityMs: Long,
+        val totalMs: Long
+    )
+
+    data class ProfiledUnlock(val identity: UserIdentity, val performance: UnlockPerformance)
 
     private data class PasswordEnvelope(
         val salt: ByteArray,
@@ -83,7 +96,11 @@ class KeyManager(context: Context, storageNamespace: String = MAIN_NAMESPACE) {
         val masterKey = ByteArray(32).also(random::nextBytes)
         val salt = ByteArray(16).also(random::nextBytes)
         val passwordKey = PasswordKdf.derive(password, salt)
-        val masterCipher = AesGcmManager.encrypt(passwordKey, masterKey, aad("master"))
+        val masterCipher = try {
+            AesGcmManager.encrypt(passwordKey, masterKey, aad("master"))
+        } finally {
+            passwordKey.fill(0)
+        }
         val seedCipher = AesGcmManager.encrypt(masterKey, pair.privateSeed, aad("identity"))
         val envelope = PasswordEnvelope(salt, masterCipher, seedCipher)
         val agreementCipher = AesGcmManager.encrypt(masterKey, agreementPair.privateKey, aad("agreement-identity"))
@@ -92,26 +109,53 @@ class KeyManager(context: Context, storageNamespace: String = MAIN_NAMESPACE) {
             agreementPair.publicKey, agreementPair.privateKey)
     }
 
-    fun unlock(password: CharArray): UserIdentity {
+    fun unlock(password: CharArray): UserIdentity = unlockProfiled(password).identity
+
+    fun unlockProfiled(password: CharArray): ProfiledUnlock {
+        val totalStarted = SystemClock.elapsedRealtime()
         check(isInitialized()) { "No local vault exists" }
         val publicKey = preferences.getString(KEY_PUBLIC_KEY, null)?.decodeBase64()
             ?: error("Vault identity is missing")
         val userId = preferences.getString(KEY_USER_ID, null) ?: error("Vault user id is missing")
+        val keystoreStarted = SystemClock.elapsedRealtime()
         val envelopeBytes = unwrapFromDevice(
             preferences.getString(KEY_DEVICE_ENVELOPE, null)?.decodeBase64()
                 ?: error("Vault envelope is missing"),
             preferences.getString(KEY_DEVICE_NONCE, null)?.decodeBase64()
                 ?: error("Vault nonce is missing")
         )
+        val keystoreMs = SystemClock.elapsedRealtime() - keystoreStarted
         val envelope = PasswordEnvelope.decode(envelopeBytes)
+        val argonStarted = SystemClock.elapsedRealtime()
         val passwordKey = PasswordKdf.derive(password, envelope.salt)
-        val masterKey = AesGcmManager.decrypt(passwordKey, envelope.masterCiphertext, aad("master"))
+        val argonMs = SystemClock.elapsedRealtime() - argonStarted
+        val masterStarted = SystemClock.elapsedRealtime()
+        val masterKey = try {
+            AesGcmManager.decrypt(passwordKey, envelope.masterCiphertext, aad("master"))
+        } finally {
+            passwordKey.fill(0)
+        }
+        val masterMs = SystemClock.elapsedRealtime() - masterStarted
+        val identityStarted = SystemClock.elapsedRealtime()
         val seed = AesGcmManager.decrypt(masterKey, envelope.seedCiphertext, aad("identity"))
         check(Ed25519Manager.publicKeyFromSeed(seed).contentEquals(publicKey)) {
             "Vault identity verification failed"
         }
+        val identityMs = SystemClock.elapsedRealtime() - identityStarted
+        val agreementStarted = SystemClock.elapsedRealtime()
         val agreement = loadOrCreateAgreement(masterKey)
-        return UserIdentity(userId, publicKey, masterKey, seed, agreement.publicKey, agreement.privateKey)
+        val agreementMs = SystemClock.elapsedRealtime() - agreementStarted
+        return ProfiledUnlock(
+            UserIdentity(userId, publicKey, masterKey, seed, agreement.publicKey, agreement.privateKey),
+            UnlockPerformance(
+                keystoreUnwrapMs = keystoreMs,
+                argon2Ms = argonMs,
+                masterKeyDecryptMs = masterMs,
+                identityDecryptMs = identityMs,
+                agreementIdentityMs = agreementMs,
+                totalMs = SystemClock.elapsedRealtime() - totalStarted
+            )
+        )
     }
 
     fun publicKeyFingerprint(): String? = preferences.getString(KEY_PUBLIC_KEY, null)?.decodeBase64()
@@ -139,7 +183,11 @@ class KeyManager(context: Context, storageNamespace: String = MAIN_NAMESPACE) {
         val passwordKey = PasswordKdf.derive(password, salt)
         val envelope = PasswordEnvelope(
             salt,
-            AesGcmManager.encrypt(passwordKey, masterKey, aad("master")),
+            try {
+                AesGcmManager.encrypt(passwordKey, masterKey, aad("master"))
+            } finally {
+                passwordKey.fill(0)
+            },
             AesGcmManager.encrypt(masterKey, privateSeed, aad("identity"))
         )
         val agreementCipher = AesGcmManager.encrypt(masterKey, agreementPrivateKey, aad("agreement-identity"))

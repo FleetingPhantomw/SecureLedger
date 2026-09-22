@@ -2,6 +2,8 @@ package com.secureledger.app
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.secureledger.core.crypto.KeyManager
@@ -34,6 +36,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -68,21 +71,27 @@ internal class LedgerViewModel(
             projectRepository.ensurePersonalProject(identity)
             projectRepository.observeProjects().collect { _projects.value = it }
         }
-        viewModelScope.launch { repository.observeRecords(identity).collect { _records.value = it } }
-        viewModelScope.launch { importRepository.observeTransactions(identity).collect { _importedTransactions.value = it } }
-        viewModelScope.launch { _report.value = repository.verify(identity) }
+        viewModelScope.launch {
+            repository.observeRecords(identity).flowOn(Dispatchers.Default).collect { _records.value = it }
+        }
+        viewModelScope.launch {
+            importRepository.observeTransactions(identity).flowOn(Dispatchers.Default)
+                .collect { _importedTransactions.value = it }
+        }
+        // Full chain/signature/Merkle validation is intentionally deferred until after home is visible.
+        viewModelScope.launch { refreshIntegrity() }
     }
 
     fun add(payload: PlainRecordPayload, projectId: String = ProjectRepository.PERSONAL_PROJECT_ID, onDone: () -> Unit) = viewModelScope.launch {
         repository.addRecord(identity, payload, projectId)
-        _report.value = repository.verify(identity)
+        refreshIntegrity()
         onDone()
     }
 
     fun correct(request: CorrectionRequest, callback: (Result<Unit>) -> Unit) = viewModelScope.launch {
         callback(runCatching {
             repository.addCorrection(identity, request)
-            _report.value = repository.verify(identity)
+            refreshIntegrity()
         })
     }
 
@@ -112,7 +121,7 @@ internal class LedgerViewModel(
     fun createSettlement(projectId: String, balances: List<Balance>, callback: (Result<SettlementProof>) -> Unit) =
         viewModelScope.launch {
             callback(runCatching {
-                val report = repository.verify(identity)
+                val report = withContext(Dispatchers.Default) { repository.verify(identity) }
                 check(report.isValid) { "账本完整性验证失败，不能生成结算凭证" }
                 settlementRepository.createAndSave(identity, projectId, repository.projectMerkleRoot(projectId), balances)
             })
@@ -134,7 +143,7 @@ internal class LedgerViewModel(
 
     fun importSyncPackage(encoded: String, callback: (SyncImportResult) -> Unit) = viewModelScope.launch {
         val result = syncRepository.import(identity, encoded)
-        if (result.accepted) _report.value = repository.verify(identity)
+        if (result.accepted) refreshIntegrity()
         callback(result)
     }
 
@@ -171,7 +180,7 @@ internal class LedgerViewModel(
 
     fun supplementImport(importedId: String, callback: (Result<String>) -> Unit) = viewModelScope.launch {
         callback(runCatching { importRepository.supplement(identity, importedId) })
-        _report.value = repository.verify(identity)
+        refreshIntegrity()
     }
 
     fun ignoreImport(importedId: String) = viewModelScope.launch { importRepository.ignore(importedId) }
@@ -179,7 +188,13 @@ internal class LedgerViewModel(
         callback(runCatching { orderParser.parse(offlineTextRecognizer.recognize(uri)) })
     }
     fun parseOrderText(text: String): Result<RecognizedOrder> = runCatching { orderParser.parse(text) }
-    fun verify() = viewModelScope.launch { _report.value = repository.verify(identity) }
+    fun verify() = viewModelScope.launch { refreshIntegrity() }
+
+    private suspend fun refreshIntegrity() {
+        val started = SystemClock.elapsedRealtime()
+        _report.value = withContext(Dispatchers.Default) { repository.verify(identity) }
+        Log.d("SecureLedgerPerf", "integrityValidation=${SystemClock.elapsedRealtime() - started}ms records=${_report.value?.checkedRecords ?: 0}")
+    }
 
     override fun onCleared() {
         lanSyncController.stop()

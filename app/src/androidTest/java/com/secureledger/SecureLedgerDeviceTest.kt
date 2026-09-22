@@ -7,6 +7,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.room.Room
@@ -40,6 +43,8 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import java.time.Instant
 import java.time.ZoneId
@@ -58,6 +63,32 @@ import java.util.concurrent.TimeUnit
 class SecureLedgerDeviceTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
     private lateinit var database: AppDatabase
+
+    @Test
+    fun vaultUnlockIsProfiledOffMainThread() = runBlocking {
+        context.getSharedPreferences(PERFORMANCE_VAULT, Context.MODE_PRIVATE).edit().clear().commit()
+        val keyManager = KeyManager(context, PERFORMANCE_NAMESPACE)
+        val createStarted = SystemClock.elapsedRealtime()
+        withContext(Dispatchers.Default) {
+            assertTrue(Looper.myLooper() != Looper.getMainLooper())
+            keyManager.createUser("PerformanceTestPassword123".toCharArray())
+        }
+        val createMs = SystemClock.elapsedRealtime() - createStarted
+        val result = withContext(Dispatchers.Default) {
+            assertTrue(Looper.myLooper() != Looper.getMainLooper())
+            keyManager.unlockProfiled("PerformanceTestPassword123".toCharArray())
+        }
+        assertTrue(result.performance.argon2Ms > 0)
+        assertTrue(result.performance.totalMs >= result.performance.argon2Ms)
+        Log.i(
+            "SecureLedgerPerfTest",
+            "create=${createMs}ms unlock=${result.performance.totalMs}ms " +
+                "keystore=${result.performance.keystoreUnwrapMs}ms argon2=${result.performance.argon2Ms}ms " +
+                "masterDecrypt=${result.performance.masterKeyDecryptMs}ms " +
+                "identity=${result.performance.identityDecryptMs}ms agreement=${result.performance.agreementIdentityMs}ms"
+        )
+        Unit
+    }
 
     @Test
     fun encryptPersistReloadAndDetectDatabaseTamper() = runBlocking {
@@ -168,6 +199,7 @@ class SecureLedgerDeviceTest {
     fun projectInvitationSyncAndIndependentSettlementCosignWorkEndToEnd() = runBlocking {
         context.getSharedPreferences(TEST_VAULT, Context.MODE_PRIVATE).edit().clear().commit()
         context.getSharedPreferences(MEMBER_VAULT, Context.MODE_PRIVATE).edit().clear().commit()
+        context.getSharedPreferences(PERFORMANCE_VAULT, Context.MODE_PRIVATE).edit().clear().commit()
         val ownerKeys = KeyManager(context, TEST_NAMESPACE)
         val memberKeys = KeyManager(context, MEMBER_NAMESPACE)
         val owner = ownerKeys.createUser("OwnerDevicePassword123".toCharArray())
@@ -276,5 +308,7 @@ class SecureLedgerDeviceTest {
         private const val RESTORE_VAULT = "secure_vault.$RESTORE_NAMESPACE"
         private const val MEMBER_NAMESPACE = "member_test"
         private const val MEMBER_VAULT = "secure_vault.$MEMBER_NAMESPACE"
+        private const val PERFORMANCE_NAMESPACE = "performance_test"
+        private const val PERFORMANCE_VAULT = "secure_vault.$PERFORMANCE_NAMESPACE"
     }
 }

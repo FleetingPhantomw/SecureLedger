@@ -43,8 +43,17 @@ try {
     & $adb -s $DeviceSerial install -r "app\build\outputs\apk\debug\app-debug.apk"
     & $adb -s $DeviceSerial install -r "app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk"
     & $adb -s $DeviceSerial shell pm grant com.secureledger.test android.permission.CAMERA
-    & $adb -s $DeviceSerial shell am instrument -w -r com.secureledger.test/androidx.test.runner.AndroidJUnitRunner
-    if ($LASTEXITCODE -ne 0) { throw "Instrumentation tests failed" }
+    $instrumentationOutput = & $adb -s $DeviceSerial shell am instrument -w -r com.secureledger.test/androidx.test.runner.AndroidJUnitRunner 2>&1
+    $instrumentationExitCode = $LASTEXITCODE
+    $instrumentationOutput | Write-Output
+    $instrumentationText = $instrumentationOutput -join "`n"
+    if (
+        $instrumentationExitCode -ne 0 -or
+        $instrumentationText -match "FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed" -or
+        $instrumentationText -notmatch "(?m)^OK \(\d+ tests?\)$"
+    ) {
+        throw "Instrumentation tests failed"
+    }
 } finally {
     & $adb -s $DeviceSerial uninstall com.secureledger.test | Out-Null
     Pop-Location
