@@ -8,6 +8,7 @@
 - Added a first-home-frame timing marker and recorded current API 35 emulator measurements beside the earlier baseline; these variable emulator runs do not justify a speed-improvement claim.
 - Audited production source and manifest for the removed ML Kit, CSV, P2P, and relay implementations; none remain. Historical encrypted import models are intentionally retained for compatibility.
 - Verified `gradlew build` and 14 Android instrumentation tests, including production dialog and bottom-sheet back components; added a persistent local Release signing flow, verified its APK signature, and installed and opened it on a clean API 35 AVD. Private signing material stays outside Git.
+- Confirmed the Debug APK installs and launches on a Meizu Android 16 phone. Diagnosed Release installation failure as a retained, Debug-signed package in Flyme parallel space; preserved its data and documented the backup-first migration requirement. The physical-device instrumentation run was interrupted and is not reported as passing.
 
 ### Repository and tooling
 

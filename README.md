@@ -1,6 +1,6 @@
 # SecureLedger
 
-SecureLedger 1.0 is a local-first Android secure ledger for personal records and multi-user AA projects. Security checks reject invalid data before persistence. The current productization build is verified on an API 35 emulator; physical-device revalidation remains pending.
+SecureLedger 1.0 is a local-first Android secure ledger for personal records and multi-user AA projects. Security checks reject invalid data before persistence. The current productization build is verified on an API 35 emulator and installs on an Android 16 phone; full physical-device revalidation remains pending.
 
 ## Trust model
 
