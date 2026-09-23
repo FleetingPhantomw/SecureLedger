@@ -29,6 +29,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Group
@@ -41,6 +42,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,10 +69,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -82,9 +84,13 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.secureledger.SecureLedgerApplication
 import com.secureledger.core.crypto.KeyManager
+import com.secureledger.core.crypto.HashManager
 import com.secureledger.core.ledger.CorrectionRequest
 import com.secureledger.core.ledger.IntegrityReport
 import com.secureledger.core.ledger.PlainRecordPayload
+import com.secureledger.core.ledger.MonthlySummary
+import com.secureledger.core.ledger.MonthlyTransaction
+import com.secureledger.core.ledger.formatYuan
 import com.secureledger.core.settlement.Balance
 import com.secureledger.core.settlement.SettlementProof
 import com.secureledger.data.repository.DecryptedRecord
@@ -115,6 +121,10 @@ import com.secureledger.core.ledger.PaymentChannelCode
 import com.secureledger.feature.settings.SettingsScreen
 import com.secureledger.core.accessibility.TransactionCandidate
 import com.secureledger.integration.accessibility.CandidateInbox
+import com.secureledger.design.LocalLedgerSemanticColors
+import com.secureledger.design.LedgerSpacing
+import com.secureledger.design.LedgerSectionTitle
+import com.secureledger.design.LedgerAmountText
 import com.secureledger.feature.auth.UnlockUiState
 import com.secureledger.feature.auth.UnlockViewModel
 import com.secureledger.core.backup.PortableBackupCodec
@@ -124,20 +134,24 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.secureledger.data.entity.ProjectEntity
 import java.io.ByteArrayOutputStream
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.math.BigDecimal
+import java.math.BigInteger
+import kotlinx.coroutines.delay
 import java.util.UUID
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 
-private enum class Tab { HOME, LEDGER, PROJECTS, SYNC, SECURITY }
+private enum class Tab { HOME, LEDGER, PROJECTS, SYNC }
 
 private object LedgerRoute {
     const val MAIN = "main"
     const val SETTINGS = "settings"
+    const val SECURITY = "security"
     const val ACCESS_JOIN = "access/join"
     const val ACCESS_PROJECT = "access/project/{projectId}"
     const val OCR = "ocr"
@@ -351,15 +365,18 @@ private fun LedgerShell(
                 onTabChange = { tab = it },
                 records = records,
                 projects = projects,
+                pendingCandidate = pendingCandidate,
                 importedTransactions = importedTransactions,
-                report = report,
-                identity = identity,
                 onAdd = { navController.navigate(LedgerRoute.ADD) },
                 onOpenReconciliation = { navController.navigate(LedgerRoute.RECONCILIATION) },
                 onOpenOcr = { navController.navigate(LedgerRoute.OCR) },
                 onOpenSettings = { navController.navigate(LedgerRoute.SETTINGS) },
                 onOpenRecord = { navController.navigate(LedgerRoute.detail(it.secure.recordId)) },
-                onCorrectRecord = { navController.navigate(LedgerRoute.correction(it.secure.recordId)) },
+                onReviewCandidate = { candidate ->
+                    reviewingCandidate = candidate
+                    CandidateInbox.dismiss()
+                    navController.navigate(LedgerRoute.REVIEW)
+                },
                 onCreateProject = { navController.navigate(LedgerRoute.CREATE_PROJECT) },
                 onJoinProject = { navController.navigate(LedgerRoute.ACCESS_JOIN) },
                 onManageProject = { navController.navigate(LedgerRoute.accessProject(it.projectId)) },
@@ -371,14 +388,13 @@ private fun LedgerShell(
                 },
                 onExport = viewModel::exportSyncPackage,
                 onImport = viewModel::importSyncPackage,
-                onVerify = viewModel::verify
             )
         }
         composable(LedgerRoute.SETTINGS) {
             SettingsScreen(
-                identity = identity,
                 accessibilityPreferences = (context.applicationContext as SecureLedgerApplication).accessibilityPreferences,
                 onBack = navController::popBackStack,
+                onOpenSecurity = { navController.navigate(LedgerRoute.SECURITY) },
                 onLock = { onSharedImageConsumed(); onLock() },
                 onCreateBackup = viewModel::createBackup,
                 bankCards = bankCards,
@@ -386,6 +402,9 @@ private fun LedgerShell(
                 onSetBankCardEnabled = viewModel::setBankCardEnabled,
                 onDeleteBankCard = viewModel::deleteBankCard
             )
+        }
+        composable(LedgerRoute.SECURITY) {
+            SecurityScreen(identity, report, navController::popBackStack, viewModel::verify)
         }
         composable(LedgerRoute.ACCESS_JOIN) {
             ProjectAccessScreen(null, projectMembers, joinRequest, navController::popBackStack,
@@ -477,7 +496,7 @@ private fun LedgerShell(
     }
     pendingCandidate?.let { candidate ->
         ModalBottomSheet(onDismissRequest = CandidateInbox::dismiss) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxWidth().padding(LedgerSpacing.page), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
                 Text("检测到一笔消费", style = MaterialTheme.typography.titleLarge)
                 Text("¥${formatCents(candidate.amountCents)}", style = MaterialTheme.typography.headlineMedium)
                 Text(listOf(candidate.merchant, candidate.paymentChannel).filter(String::isNotBlank).joinToString(" · "))
@@ -517,32 +536,30 @@ private fun LedgerMainTabs(
     onTabChange: (Tab) -> Unit,
     records: List<DecryptedRecord>,
     projects: List<ProjectEntity>,
+    pendingCandidate: TransactionCandidate?,
     importedTransactions: List<ImportedTransactionView>,
-    report: IntegrityReport?,
-    identity: KeyManager.UserIdentity,
     onAdd: () -> Unit,
     onOpenReconciliation: () -> Unit,
     onOpenOcr: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenRecord: (DecryptedRecord) -> Unit,
-    onCorrectRecord: (DecryptedRecord) -> Unit,
+    onReviewCandidate: (TransactionCandidate) -> Unit,
     onCreateProject: () -> Unit,
     onJoinProject: () -> Unit,
     onManageProject: (ProjectEntity) -> Unit,
     onSettleProject: (ProjectEntity) -> Unit,
     onExport: (String, (Result<String>) -> Unit) -> Unit,
-    onImport: (String, (SyncImportResult) -> Unit) -> Unit,
-    onVerify: () -> Unit
+    onImport: (String, (SyncImportResult) -> Unit) -> Unit
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(when (tab) { Tab.HOME -> "总览"; Tab.LEDGER -> "个人账本"; Tab.PROJECTS -> "多人项目"; Tab.SYNC -> "同步账本"; Tab.SECURITY -> "安全中心" }) },
-                actions = { IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "新增账目") } }
+                title = { Text(when (tab) { Tab.HOME -> "总览"; Tab.LEDGER -> "账本"; Tab.PROJECTS -> "项目"; Tab.SYNC -> "同步" }) },
+                actions = { IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, "设置") } }
             )
         },
         floatingActionButton = {
-            if (tab == Tab.HOME || tab == Tab.LEDGER) FloatingActionButton(onClick = onAdd) {
+            if (tab == Tab.LEDGER) FloatingActionButton(onClick = onAdd) {
                 Icon(Icons.Default.Add, "新增账目")
             }
         },
@@ -552,22 +569,23 @@ private fun LedgerMainTabs(
                 NavigationBarItem(tab == Tab.LEDGER, { onTabChange(Tab.LEDGER) }, { Icon(Icons.AutoMirrored.Filled.MenuBook, "账本") }, label = { Text("账本") })
                 NavigationBarItem(tab == Tab.PROJECTS, { onTabChange(Tab.PROJECTS) }, { Icon(Icons.Default.Group, "项目") }, label = { Text("项目") })
                 NavigationBarItem(tab == Tab.SYNC, { onTabChange(Tab.SYNC) }, { Icon(Icons.Default.Sync, "同步") }, label = { Text("同步") })
-                NavigationBarItem(tab == Tab.SECURITY, { onTabChange(Tab.SECURITY) }, { Icon(Icons.Default.Security, "安全") }, label = { Text("安全") })
             }
         }
     ) { padding ->
         when (tab) {
             Tab.HOME -> HomeScreen(
-                padding, records, report,
+                padding, records,
+                pendingCandidate = pendingCandidate,
                 hasLegacyImports = importedTransactions.isNotEmpty(),
+                onAdd = onAdd,
+                onOpenRecord = onOpenRecord,
                 onOpenReconciliation = onOpenReconciliation,
                 onOpenOcr = onOpenOcr,
-                onOpenSettings = onOpenSettings
+                onReviewCandidate = onReviewCandidate
             )
             Tab.LEDGER -> LedgerScreen(
                 padding, records,
-                onOpen = onOpenRecord,
-                onCorrect = onCorrectRecord
+                onOpen = onOpenRecord
             )
             Tab.PROJECTS -> ProjectScreen(
                 padding = padding,
@@ -583,7 +601,6 @@ private fun LedgerMainTabs(
                 onExport = onExport,
                 onImport = onImport
             )
-            Tab.SECURITY -> SecurityScreen(padding, identity, report, onVerify)
         }
     }
 }
@@ -592,53 +609,112 @@ private fun LedgerMainTabs(
 private fun HomeScreen(
     padding: PaddingValues,
     records: List<DecryptedRecord>,
-    report: IntegrityReport?,
+    pendingCandidate: TransactionCandidate?,
     hasLegacyImports: Boolean,
+    onAdd: () -> Unit,
+    onOpenRecord: (DecryptedRecord) -> Unit,
     onOpenReconciliation: () -> Unit,
     onOpenOcr: () -> Unit,
-    onOpenSettings: () -> Unit
+    onReviewCandidate: (TransactionCandidate) -> Unit
 ) {
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("欢迎回来", style = MaterialTheme.typography.titleLarge)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            MetricCard("账目", records.size.toString(), Modifier.weight(1f))
-            MetricCard("数据状态", if (report?.isValid != false) "正常" else "需检查", Modifier.weight(1f))
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000)
+            nowMillis = System.currentTimeMillis()
         }
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp)) {
-                Text("本地数据保护", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(6.dp))
-                Text("账目默认只保存在本机。保存后的原始记录保持不变，如需修改会留下更正记录。")
+    }
+    val zone = ZoneId.systemDefault()
+    val monthly = remember(records, nowMillis, zone) {
+        MonthlySummary.calculate(records.map {
+            MonthlyTransaction(it.payload.transactionTime, it.payload.recordType, it.payload.amountCents)
+        }, nowMillis, zone)
+    }
+    val recent = remember(records) { records.sortedByDescending { it.payload.transactionTime }.take(5) }
+    val semantic = LocalLedgerSemanticColors.current
+    Column(
+        Modifier.fillMaxSize().padding(padding).padding(LedgerSpacing.page).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(LedgerSpacing.xl)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(LedgerSpacing.sm)) {
+            Text("${monthly.month.year}年${monthly.month.monthValue}月", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("每一笔，都清楚", style = MaterialTheme.typography.headlineSmall)
+        }
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+            Column(Modifier.padding(LedgerSpacing.xl), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.xs)) {
+                Text("本月余额变化", style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer)
+                LedgerAmountText(
+                    text = "${if (monthly.balanceChangeCents.signum() > 0) "+" else ""}${formatYuan(monthly.balanceChangeCents)}",
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text("收入减支出 · 不含转账", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
         }
-        if (hasLegacyImports) OutlinedButton(onClick = onOpenReconciliation, modifier = Modifier.fillMaxWidth()) { Text("历史导入记录") }
-        Button(onClick = onOpenOcr, modifier = Modifier.fillMaxWidth()) { Text("图片 / 截图识别") }
-        OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("设置、备份与恢复") }
-        Text("最近账目", style = MaterialTheme.typography.titleMedium)
-        records.take(3).forEach { RecordRow(it) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(LedgerSpacing.lg)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.xs)) {
+                Text("本月支出", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(formatYuan(monthly.expenseCents), style = MaterialTheme.typography.titleLarge,
+                    color = semantic.expense)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.xs)) {
+                Text("本月收入", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(formatYuan(monthly.incomeCents), style = MaterialTheme.typography.titleLarge,
+                    color = semantic.income)
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Column(verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
+            LedgerSectionTitle("快速记账")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(LedgerSpacing.sm)) {
+                Button(onClick = onAdd, modifier = Modifier.weight(1f)) { Text("记一笔") }
+                OutlinedButton(onClick = onOpenOcr, modifier = Modifier.weight(1f)) { Text("识别截图") }
+            }
+        }
+        pendingCandidate?.let { candidate ->
+            OutlinedButton(onClick = { onReviewCandidate(candidate) }, modifier = Modifier.fillMaxWidth()) {
+                Text("待确认消费 · ¥${formatCents(candidate.amountCents)}")
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(LedgerSpacing.sm)) {
+            LedgerSectionTitle("最近记录")
+            if (recent.isEmpty()) {
+                Text("还没有账目。记下第一笔，月度收支会显示在这里。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else recent.forEachIndexed { index, record ->
+                RecordRow(record, onOpen = { onOpenRecord(record) })
+                if (index != recent.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+        }
+        if (hasLegacyImports) TextButton(onClick = onOpenReconciliation) { Text("查看历史导入记录") }
     }
-}
-
-@Composable
-private fun MetricCard(title: String, value: String, modifier: Modifier) {
-    Card(modifier) { Column(Modifier.padding(16.dp)) { Text(title, style = MaterialTheme.typography.bodySmall); Text(value, style = MaterialTheme.typography.headlineSmall) } }
 }
 
 @Composable
 private fun LedgerScreen(
     padding: PaddingValues,
     records: List<DecryptedRecord>,
-    onOpen: (DecryptedRecord) -> Unit,
-    onCorrect: (DecryptedRecord) -> Unit
+    onOpen: (DecryptedRecord) -> Unit
 ) {
     if (records.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Icon(Icons.AutoMirrored.Filled.MenuBook, "空账本", tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(12.dp)); Text("还没有账目"); Text("点击右上角或右下角 + 开始记录")
         }
-    } else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(records, key = { it.secure.recordId }) {
-            RecordRow(it, onOpen = { onOpen(it) }, onCorrect = { onCorrect(it) })
+    } else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(LedgerSpacing.page)) {
+        item { LedgerSectionTitle("全部记录") }
+        items(records.sortedByDescending { it.payload.transactionTime }, key = { it.secure.recordId }) {
+            RecordRow(it, onOpen = { onOpen(it) })
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
@@ -652,31 +728,30 @@ private fun ProjectScreen(
     onManage: (ProjectEntity) -> Unit,
     onSettle: (ProjectEntity) -> Unit
 ) {
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("项目账本", style = MaterialTheme.typography.headlineSmall)
-        Text("和成员共同记账、同步记录并完成分摊。", style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = onCreate, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Add, "新建项目"); Spacer(Modifier.width(8.dp)); Text("新建多人项目") }
-        Button(onClick = onJoin, modifier = Modifier.fillMaxWidth()) { Text("加入已有项目") }
-        if (projects.isEmpty()) Text("还没有项目", style = MaterialTheme.typography.bodySmall)
-        projects.forEach { project ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(project.name, style = MaterialTheme.typography.titleMedium)
-                    Text(if (project.projectId == ProjectRepository.PERSONAL_PROJECT_ID) "个人账本 · 本机" else "多人项目 · ${project.projectId.takeLast(8)}",
-                        style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.height(6.dp))
-                    if (project.projectId != ProjectRepository.PERSONAL_PROJECT_ID) {
-                        Spacer(Modifier.height(8.dp))
-                        Button(onClick = { onManage(project) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("成员与邀请")
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Button(onClick = { onSettle(project) }, modifier = Modifier.fillMaxWidth()) {
-                            Text("打开 AA 结算")
-                        }
-                    }
+    val sharedProjects = projects.filter { it.projectId != ProjectRepository.PERSONAL_PROJECT_ID }
+    Column(Modifier.fillMaxSize().padding(padding).padding(LedgerSpacing.page).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
+        Text("共同记账", style = MaterialTheme.typography.headlineSmall)
+        Text("与成员记录开销、同步账本并完成分摊。", style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(LedgerSpacing.sm)) {
+            Button(onClick = onCreate, modifier = Modifier.weight(1f)) { Text("新建项目") }
+            OutlinedButton(onClick = onJoin, modifier = Modifier.weight(1f)) { Text("加入项目") }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        LedgerSectionTitle("我的项目")
+        if (sharedProjects.isEmpty()) {
+            Text("还没有多人项目。个人账目可以直接在“账本”中查看。",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        sharedProjects.forEach { project ->
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.xs)) {
+                Text(project.name, style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(LedgerSpacing.sm)) {
+                    TextButton(onClick = { onManage(project) }) { Text("成员与邀请") }
+                    TextButton(onClick = { onSettle(project) }) { Text("AA 结算") }
                 }
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
@@ -733,7 +808,7 @@ private fun SyncScreen(
     val qrBitmap = remember(frames, frameIndex) { frames.getOrNull(frameIndex)?.let(::createQrBitmap) }
 
     Column(
-        Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()),
+        Modifier.fillMaxSize().padding(padding).padding(LedgerSpacing.page).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -802,7 +877,7 @@ private fun SyncScreen(
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         if (result.accepted) "同步完成" else syncStatusMessage(result.status),
-                        color = if (result.accepted) Color(0xFF137333) else MaterialTheme.colorScheme.error,
+                        color = if (result.accepted) LocalLedgerSemanticColors.current.success else MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text("新增 ${result.importedRecords} 条，已存在 ${result.duplicateRecords} 条")
@@ -874,7 +949,7 @@ private fun SettlementScreen(
         }
     ) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("录入每位成员的实际支付与应承担金额，系统会计算净余额并生成最少转账方案。", style = MaterialTheme.typography.bodyMedium)
@@ -1003,7 +1078,7 @@ private fun CreateProjectScreen(onBack: () -> Unit, onDirtyChange: (Boolean) -> 
     var error by remember { mutableStateOf<String?>(null) }
     SideEffect { onDirtyChange(name.isNotBlank()) }
     Scaffold(topBar = { TopAppBar(title = { Text("新建多人项目") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
             Text("创建后，你可以邀请成员共同记账和结算。")
             OutlinedTextField(name, { name = it }, label = { Text("项目名称") }, modifier = Modifier.fillMaxWidth())
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -1016,21 +1091,34 @@ private fun CreateProjectScreen(onBack: () -> Unit, onDirtyChange: (Boolean) -> 
 }
 
 @Composable
-private fun RecordRow(record: DecryptedRecord, onOpen: (() -> Unit)? = null, onCorrect: (() -> Unit)? = null) {
-    Card(Modifier.fillMaxWidth().then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier)) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column(Modifier.weight(1f)) {
-                Text(record.payload.merchant.ifBlank { "未命名商户" }, style = MaterialTheme.typography.titleMedium)
-                Text("${record.payload.category} · ${record.payload.paymentChannel}", style = MaterialTheme.typography.bodySmall)
-                Text(formatTime(record.payload.transactionTime), style = MaterialTheme.typography.bodySmall)
+private fun RecordRow(record: DecryptedRecord, onOpen: (() -> Unit)? = null) {
+    val semantic = LocalLedgerSemanticColors.current
+    val sign = when (record.payload.recordType) { "EXPENSE" -> "-"; "INCOME" -> "+"; else -> "" }
+    val amountColor = when (record.payload.recordType) {
+        "EXPENSE" -> semantic.expense
+        "INCOME" -> semantic.income
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Column(
+        Modifier.fillMaxWidth().then(if (onOpen == null) Modifier else Modifier.clickable(onClick = onOpen))
+            .padding(vertical = LedgerSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(LedgerSpacing.xs)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(LedgerSpacing.sm),
+            verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.xs)) {
+                Text(record.payload.merchant.ifBlank { "未命名商户" }, style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${record.payload.category} · ${record.payload.paymentChannel}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("¥${record.payload.amountCents / 100}.${(record.payload.amountCents % 100).toString().padStart(2, '0')}", style = MaterialTheme.typography.titleMedium)
-                if (onCorrect != null && record.payload.recordType != "CORRECTION") {
-                    TextButton(onClick = onCorrect) { Text("更正") }
-                }
-            }
+            Text("$sign${formatYuan(BigInteger.valueOf(record.payload.amountCents))}",
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), color = amountColor)
         }
+        Text(formatFriendlyTime(record.payload.transactionTime), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -1070,7 +1158,7 @@ private fun AddRecordScreen(
         vouchers = uris.take(5).map(Uri::toString)
     }
     Scaffold(topBar = { TopAppBar(title = { Text(if (candidate == null) "新增账目" else "确认消费") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
             Text(if (candidate == null) "记录真实交易金额与时间；保存后原始记录不可直接修改。" else "请核对金额、商户和支付方式后保存。", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(recordType == "EXPENSE", { recordType = "EXPENSE" }, { Text("支出") })
@@ -1154,13 +1242,21 @@ private fun AddRecordScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RecordDetailScreen(record: DecryptedRecord, onBack: () -> Unit, onCorrect: () -> Unit) {
+    val semantic = LocalLedgerSemanticColors.current
+    val sign = when (record.payload.recordType) { "EXPENSE" -> "-"; "INCOME" -> "+"; else -> "" }
+    val amountColor = when (record.payload.recordType) {
+        "EXPENSE" -> semantic.expense
+        "INCOME" -> semantic.income
+        else -> MaterialTheme.colorScheme.onSurface
+    }
     Scaffold(topBar = { TopAppBar(title = { Text("账目详情") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).padding(LedgerSpacing.page).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(record.payload.merchant.ifBlank { "未命名商户" }, style = MaterialTheme.typography.headlineSmall)
-            Text("${recordTypeLabel(record.payload.recordType)} · ¥${formatCents(record.payload.amountCents)}", style = MaterialTheme.typography.titleLarge)
-            Text("分类：${record.payload.category}")
-            Text("交易时间：${DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(record.payload.transactionTime))}")
-            Text("支付方式：${record.payload.paymentChannel}")
+            LedgerAmountText("$sign${formatYuan(BigInteger.valueOf(record.payload.amountCents))}", color = amountColor)
+            Text("${recordTypeLabel(record.payload.recordType)} · ${record.payload.category} · ${record.payload.paymentChannel}",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text("交易时间  ${DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(record.payload.transactionTime))}")
             record.payload.bankCardDisplaySnapshot?.let { Text("银行卡：$it") }
             if (record.payload.tags.isNotEmpty()) Text("标签：${record.payload.tags.joinToString("、")}")
             if (record.payload.note.isNotBlank()) Text("备注：${record.payload.note}")
@@ -1201,7 +1297,7 @@ private fun CorrectionScreen(
     var error by remember { mutableStateOf<String?>(null) }
     SideEffect { onDirtyChange(newAmount != currentAmount || reason != "金额录入错误") }
     Scaffold(topBar = { TopAppBar(title = { Text("追加更正记录") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
             Text("原始记录保持不变，本次修改会作为新的更正记录保存。")
             Text("当前有效金额：¥$currentAmount", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(newAmount, { newAmount = it }, label = { Text("更正后金额（元）") }, modifier = Modifier.fillMaxWidth())
@@ -1221,19 +1317,18 @@ private fun CorrectionScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SecurityScreen(padding: PaddingValues, identity: KeyManager.UserIdentity, report: IntegrityReport?, verify: () -> Unit) {
+private fun SecurityScreen(identity: KeyManager.UserIdentity, report: IntegrityReport?, onBack: () -> Unit, verify: () -> Unit) {
     var showTechnicalDetails by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Security, "安全中心", tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(8.dp)); Text("安全中心", style = MaterialTheme.typography.headlineSmall) }
-        Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
-            Text("本机身份", style = MaterialTheme.typography.labelLarge)
-            Text(identity.userId)
-        } }
+    Scaffold(topBar = { TopAppBar(title = { Text("数据与安全") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).padding(LedgerSpacing.page).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
+        Text("账本验证", style = MaterialTheme.typography.headlineSmall)
+        Text("检查记录是否完整、来源是否可信，以及历史是否连续。", style = MaterialTheme.typography.bodyMedium)
         Button(onClick = verify, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Lock, "验证"); Spacer(Modifier.width(8.dp)); Text("验证账本完整性") }
         report?.let { current ->
             Text(if (current.isValid) "验证通过：${current.checkedRecords} 条记录" else "发现 ${current.issues.size} 个问题",
-                color = if (current.isValid) Color(0xFF137333) else MaterialTheme.colorScheme.error,
+                color = if (current.isValid) LocalLedgerSemanticColors.current.success else MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.titleMedium)
             Text("上次检查：${DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(current.checkedAt))}", style = MaterialTheme.typography.bodySmall)
             if (!current.isValid) Text("部分记录未通过安全验证。", color = MaterialTheme.colorScheme.error)
@@ -1241,6 +1336,9 @@ private fun SecurityScreen(padding: PaddingValues, identity: KeyManager.UserIden
                 Text(if (showTechnicalDetails) "收起技术详情" else "查看技术详情")
             }
             if (showTechnicalDetails) {
+                Text("身份编号：${identity.userId}", style = MaterialTheme.typography.bodySmall)
+                Text("Ed25519：${HashManager.sha256Hex(identity.publicKey).take(16)}", style = MaterialTheme.typography.bodySmall)
+                Text("X25519：${HashManager.sha256Hex(identity.agreementPublicKey).take(16)}", style = MaterialTheme.typography.bodySmall)
                 Text("Merkle Root：${current.merkleRoot}", style = MaterialTheme.typography.bodySmall)
                 Text("签名：${if (current.issues.none { it.failure.name == "SIGNATURE_INVALID" }) "通过" else "异常"} · 哈希链：${if (current.issues.none { it.failure.name == "PREVIOUS_HASH_INVALID" || it.failure.name == "SEQUENCE_GAP" }) "通过" else "异常"}")
                 current.issues.forEach { issue -> Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
@@ -1250,11 +1348,22 @@ private fun SecurityScreen(padding: PaddingValues, identity: KeyManager.UserIden
                 Text("检查项：recordHash、Ed25519、previousHash、序列连续性和 AES-GCM 认证标签。", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Text("安全验证会检查记录是否完整、来源是否可信，以及历史是否连续。", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
 private fun formatTime(value: Long): String = DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(value))
+
+private fun formatFriendlyTime(value: Long): String {
+    val zone = ZoneId.systemDefault()
+    val localDate = Instant.ofEpochMilli(value).atZone(zone).toLocalDate()
+    val time = DateTimeFormatter.ofPattern("HH:mm").withZone(zone).format(Instant.ofEpochMilli(value))
+    return when (localDate) {
+        LocalDate.now(zone) -> "今天 $time"
+        LocalDate.now(zone).minusDays(1) -> "昨天 $time"
+        else -> DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(zone).format(Instant.ofEpochMilli(value))
+    }
+}
 
 private fun recordTypeLabel(value: String): String = when (value) {
     "EXPENSE" -> "支出"
@@ -1279,8 +1388,3 @@ private fun readBounded(stream: java.io.InputStream, maxBytes: Int): ByteArray {
 @Composable
 private fun <T> StateFlow<T>.collectAsStateCompat(): androidx.compose.runtime.State<T> =
     this.collectAsState()
-
-@Composable
-fun SecureLedgerTheme(content: @Composable () -> Unit) {
-    MaterialTheme(content = content)
-}

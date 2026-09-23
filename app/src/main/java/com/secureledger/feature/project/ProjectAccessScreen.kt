@@ -1,5 +1,8 @@
 package com.secureledger.feature.project
 
+import com.secureledger.design.LocalLedgerSemanticColors
+import com.secureledger.design.LedgerSpacing
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -38,7 +41,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -89,7 +91,7 @@ fun ProjectAccessScreen(
         )
     }) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (project == null) {
@@ -127,7 +129,7 @@ fun ProjectAccessScreen(
             Button(onClick = { process(input) }, enabled = input.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                 Text(if (project == null) "验证并加入项目" else "验证请求并生成邀请")
             }
-            message?.let { Text(it, color = if (it.contains("失败") || it.contains("无效")) MaterialTheme.colorScheme.error else Color(0xFF137333)) }
+            message?.let { Text(it, color = if (it.contains("失败") || it.contains("无效")) MaterialTheme.colorScheme.error else LocalLedgerSemanticColors.current.success) }
         }
     }
 }

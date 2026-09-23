@@ -8,7 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.mutableStateOf
 import com.secureledger.app.SecureLedgerApp
-import com.secureledger.app.SecureLedgerTheme
+import com.secureledger.design.SecureLedgerTheme
 import com.secureledger.core.accessibility.TransactionCandidate
 import com.secureledger.integration.accessibility.AppVisibility
 import com.secureledger.integration.accessibility.CandidateInbox

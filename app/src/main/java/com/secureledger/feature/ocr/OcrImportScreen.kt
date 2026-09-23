@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.secureledger.design.LedgerSpacing
 import androidx.core.content.ContextCompat
 import com.secureledger.core.ledger.PaymentDetail
 import com.secureledger.core.ledger.PlainRecordPayload
@@ -97,7 +98,7 @@ fun OcrImportScreen(
         TopAppBar(title = { Text("图片识别") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } })
     }) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("图片识别记账", style = MaterialTheme.typography.headlineSmall)

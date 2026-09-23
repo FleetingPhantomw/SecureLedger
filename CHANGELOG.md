@@ -88,4 +88,13 @@
 - Added consumed Scaffold insets plus animated IME padding to text-entry screens, including record entry, settlement, OCR confirmation, invitations, and settings.
 - Verified on API 35 that the home bottom bar clears system navigation and that the bottom of a long record form remains reachable while the software keyboard is visible.
 
-Further design-system, UI, test, and release changes will be recorded here when their implementation and tests are complete.
+### Design system and main screens
+
+- Added a designed SecureLedger light/dark Material 3 theme with muted blue surfaces, semantic income/expense/success/warning colors, typography, shapes, spacing, and restrained motion tokens.
+- Replaced scattered green status colors and page spacing with shared tokens; consolidated section titles and prominent amount presentation into reusable components.
+- Rebuilt Home around current-month spending, income, cash-flow change, quick entry, pending confirmations, and recent transactions. Integrity diagnostics moved out of Home.
+- Simplified transaction rows and project lists, removed raw project identifiers from ordinary UI, and made record amounts visually prominent with expense/income semantics.
+- Moved integrity verification from a fifth bottom tab to Settings → Data & Security; detailed cryptographic identifiers remain collapsed until requested.
+- Added overflow-safe monthly aggregation and formatting tests. On an isolated API 35 test profile, a ¥23.50 expense updated the month summary and recent row; light and dark layouts were visually checked.
+
+Further test, performance, cleanup, and release changes will be recorded here when their implementation and tests are complete.

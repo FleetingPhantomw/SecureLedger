@@ -37,10 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import com.secureledger.core.crypto.HashManager
-import com.secureledger.core.crypto.KeyManager
 import com.secureledger.data.entity.BankCardEntity
 import com.secureledger.integration.accessibility.AccessibilityPreferences
+import com.secureledger.design.LedgerSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,9 +47,9 @@ import kotlinx.coroutines.withContext
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    identity: KeyManager.UserIdentity,
     accessibilityPreferences: AccessibilityPreferences,
     onBack: () -> Unit,
+    onOpenSecurity: () -> Unit,
     onLock: () -> Unit,
     onCreateBackup: (CharArray, (Result<ByteArray>) -> Unit) -> Unit,
     bankCards: List<BankCardEntity>,
@@ -69,7 +68,6 @@ fun SettingsScreen(
     var cardAlias by remember { mutableStateOf("") }
     var lastFourDigits by remember { mutableStateOf("") }
     var pendingDelete by remember { mutableStateOf<BankCardEntity?>(null) }
-    var showIdentityDetails by remember { mutableStateOf(false) }
     val createDocument = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val bytes = pendingBytes
         if (uri != null && bytes != null) {
@@ -89,23 +87,12 @@ fun SettingsScreen(
         TopAppBar(title = { Text("设置") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } })
     }) { padding ->
         Column(
-            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(20.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("身份与隐私", style = MaterialTheme.typography.headlineSmall)
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("身份编号：${identity.userId}")
-                    Text("账目、图片识别和身份信息默认仅保存在本机。", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { showIdentityDetails = !showIdentityDetails }) {
-                        Text(if (showIdentityDetails) "收起技术详情" else "查看技术详情")
-                    }
-                    if (showIdentityDetails) {
-                        Text("Ed25519：${HashManager.sha256Hex(identity.publicKey).take(16)}", style = MaterialTheme.typography.bodySmall)
-                        Text("X25519：${HashManager.sha256Hex(identity.agreementPublicKey).take(16)}", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+            Text("隐私与安全", style = MaterialTheme.typography.headlineSmall)
+            Text("账目和图片识别默认只在本机处理。", style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(onClick = onOpenSecurity, modifier = Modifier.fillMaxWidth()) { Text("数据与安全") }
             RecognitionSettingsSection(accessibilityPreferences)
             Text("银行卡", style = MaterialTheme.typography.titleMedium)
             Text("只保存银行名称、别名和后四位，不保存完整卡号。历史账目保留保存时的显示快照。", style = MaterialTheme.typography.bodySmall)
