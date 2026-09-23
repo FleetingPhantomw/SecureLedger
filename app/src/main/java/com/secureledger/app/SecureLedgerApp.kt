@@ -86,8 +86,6 @@ import com.secureledger.data.repository.SyncImportStatus
 import com.secureledger.data.repository.SyncRepository
 import com.secureledger.data.repository.ImportRepository
 import com.secureledger.data.repository.ImportedTransactionView
-import com.secureledger.core.importer.DataSourceType
-import com.secureledger.feature.importer.ImportCenterScreen
 import com.secureledger.feature.importer.ReconciliationScreen
 import com.secureledger.feature.ocr.OcrImportScreen
 import com.secureledger.integration.ocr.OcrEngine
@@ -303,7 +301,6 @@ private fun LedgerShell(
     var projectCreateVisible by remember { mutableStateOf(false) }
     var settlementProject by remember { mutableStateOf<ProjectEntity?>(null) }
     var latestSettlement by remember { mutableStateOf<SettlementProof?>(null) }
-    var importVisible by remember { mutableStateOf(false) }
     var reconciliationVisible by remember { mutableStateOf(false) }
     var importMessage by remember { mutableStateOf<String?>(null) }
     var ocrVisible by remember { mutableStateOf(false) }
@@ -370,6 +367,7 @@ private fun LedgerShell(
     if (reconciliationVisible) {
         ReconciliationScreen(
             entries = importedTransactions,
+            operationMessage = importMessage,
             onBack = { reconciliationVisible = false },
             onSupplement = { id ->
                 viewModel.supplementImport(id) { result ->
@@ -377,24 +375,6 @@ private fun LedgerShell(
                 }
             },
             onIgnore = { id -> viewModel.ignoreImport(id) }
-        )
-        return
-    }
-    if (importVisible) {
-        ImportCenterScreen(
-            entries = importedTransactions,
-            operationMessage = importMessage,
-            onBack = { importVisible = false },
-            onOpenReconciliation = { reconciliationVisible = true },
-            onImport = { source, uri, name ->
-                importMessage = "正在本地解析并加密…"
-                viewModel.importCsv(context, source, uri, name) { result ->
-                    importMessage = result.fold(
-                        { "已导入 ${it.acceptedRows} 条，拒绝 ${it.rejectedRows} 条" },
-                        { it.message ?: "导入失败" }
-                    )
-                }
-            }
         )
         return
     }
@@ -483,7 +463,7 @@ private fun LedgerShell(
         when (tab) {
             Tab.HOME -> HomeScreen(
                 padding, records, report,
-                onOpenImport = { importVisible = true },
+                hasLegacyImports = importedTransactions.isNotEmpty(),
                 onOpenReconciliation = { reconciliationVisible = true },
                 onOpenOcr = { ocrVisible = true },
                 onOpenSettings = { settingsVisible = true }
@@ -539,7 +519,7 @@ private fun HomeScreen(
     padding: PaddingValues,
     records: List<DecryptedRecord>,
     report: IntegrityReport?,
-    onOpenImport: () -> Unit,
+    hasLegacyImports: Boolean,
     onOpenReconciliation: () -> Unit,
     onOpenOcr: () -> Unit,
     onOpenSettings: () -> Unit
@@ -557,10 +537,7 @@ private fun HomeScreen(
                 Text("账目默认只保存在本机。保存后的原始记录保持不变，如需修改会留下更正记录。")
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onOpenImport, modifier = Modifier.weight(1f)) { Text("导入中心") }
-            Button(onClick = onOpenReconciliation, modifier = Modifier.weight(1f)) { Text("待对账") }
-        }
+        if (hasLegacyImports) OutlinedButton(onClick = onOpenReconciliation, modifier = Modifier.fillMaxWidth()) { Text("历史导入记录") }
         Button(onClick = onOpenOcr, modifier = Modifier.fillMaxWidth()) { Text("图片 / 截图识别") }
         OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) { Text("设置、备份与恢复") }
         Text("最近账目", style = MaterialTheme.typography.titleMedium)

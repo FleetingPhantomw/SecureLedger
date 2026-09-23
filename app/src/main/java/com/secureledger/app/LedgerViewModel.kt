@@ -1,13 +1,11 @@
 package com.secureledger.app
 
-import android.content.Context
 import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.secureledger.core.crypto.KeyManager
-import com.secureledger.core.importer.DataSourceType
 import com.secureledger.core.ledger.CorrectionRequest
 import com.secureledger.core.ledger.IntegrityReport
 import com.secureledger.core.ledger.PlainRecordPayload
@@ -33,7 +31,6 @@ import com.secureledger.integration.network.LanShareSession
 import com.secureledger.integration.network.LanSyncController
 import com.secureledger.integration.network.RelaySyncClient
 import com.secureledger.integration.ocr.OcrEngine
-import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -173,17 +170,6 @@ internal class LedgerViewModel(
         finally { password.fill('\u0000') }
     }
 
-    fun importCsv(context: Context, sourceType: DataSourceType, uri: Uri, displayName: String,
-                  callback: (Result<com.secureledger.data.repository.ImportSummary>) -> Unit) = viewModelScope.launch {
-        callback(runCatching {
-            val bytes = withContext(Dispatchers.IO) {
-                context.applicationContext.contentResolver.openInputStream(uri)?.use(::readBounded)
-                    ?: error("无法读取所选文件")
-            }
-            importRepository.importCsv(identity, sourceType, displayName, bytes)
-        })
-    }
-
     fun supplementImport(importedId: String, callback: (Result<String>) -> Unit) = viewModelScope.launch {
         callback(runCatching { importRepository.supplement(identity, importedId) })
         refreshIntegrity()
@@ -225,17 +211,4 @@ internal class LedgerViewModel(
         super.onCleared()
     }
 
-    private fun readBounded(stream: java.io.InputStream): ByteArray {
-        val output = ByteArrayOutputStream()
-        val buffer = ByteArray(8192)
-        var total = 0
-        while (true) {
-            val read = stream.read(buffer)
-            if (read < 0) break
-            total += read
-            require(total <= ImportRepository.MAX_FILE_BYTES) { "文件超过 5 MiB 限制" }
-            output.write(buffer, 0, read)
-        }
-        return output.toByteArray()
-    }
 }

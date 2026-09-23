@@ -8,6 +8,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.room.Room
 import com.secureledger.core.crypto.KeyManager
+import com.secureledger.core.crypto.AesGcmManager
+import com.secureledger.core.crypto.encodeBase64
 import com.secureledger.core.crypto.Ed25519Manager
 import com.secureledger.core.crypto.HashManager
 import com.secureledger.core.ledger.CorrectionRequest
@@ -15,18 +17,23 @@ import com.secureledger.core.ledger.IntegrityFailure
 import com.secureledger.core.ledger.PlainRecordPayload
 import com.secureledger.data.database.AppDatabase
 import com.secureledger.data.repository.LedgerRepository
+import com.secureledger.data.repository.ImportRepository
 import com.secureledger.data.repository.ProjectRepository
 import com.secureledger.data.repository.SyncImportStatus
 import com.secureledger.data.repository.SyncRepository
-import com.secureledger.data.repository.ImportRepository
 import com.secureledger.data.repository.BackupRepository
 import com.secureledger.data.repository.ProjectKeyRepository
 import com.secureledger.data.repository.InvitationRepository
 import com.secureledger.data.repository.SettlementRepository
 import com.secureledger.integration.network.LanSyncController
-import com.secureledger.core.importer.DataSourceType
-import com.secureledger.core.importer.ReconciliationStatus
 import com.secureledger.core.merkle.MerkleTree
+import com.secureledger.core.importer.DataSourceType
+import com.secureledger.core.importer.DuplicateLevel
+import com.secureledger.core.importer.ImportedTransaction
+import com.secureledger.core.importer.ReconciliationStatus
+import com.secureledger.core.importer.TransactionDirection
+import com.secureledger.data.entity.ImportBatchEntity
+import com.secureledger.data.entity.ImportedTransactionEntity
 import com.secureledger.core.settlement.Balance
 import com.secureledger.core.protocol.SecureSyncCodec
 import com.secureledger.core.protocol.SecureSyncPackage
@@ -39,9 +46,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
@@ -106,6 +112,32 @@ class SecureLedgerDeviceTest {
 
         assertTrue(repository.verify(identity).isValid)
 
+        // A pre-existing encrypted statement row remains readable after CSV ingestion is removed.
+        val legacy = ImportedTransaction(
+            sourceType = DataSourceType.BANK.name, amountCents = 2350,
+            direction = TransactionDirection.DEBIT.name, merchant = "真机测试",
+            transactionTime = transactionTime, paymentChannel = "银行卡", category = "餐饮",
+            rawDescription = "历史银行流水", sourceRow = 2
+        )
+        val importedId = "legacy_import_1"
+        val batchId = "legacy_batch_1"
+        val clear = "{\"transaction\":${Json.encodeToString(legacy)}}".toByteArray()
+        val encrypted = AesGcmManager.encrypt(
+            identity.masterKey, clear,
+            "$importedId|$batchId|${legacy.sourceType}|1".toByteArray()
+        )
+        database.importDao().insertBatch(ImportBatchEntity(batchId, legacy.sourceType, "历史记录", transactionTime, 1, 0))
+        database.importDao().insertTransactions(listOf(ImportedTransactionEntity(
+            importedId, batchId, legacy.sourceType, encrypted.bytes.encodeBase64(),
+            encrypted.nonce.encodeBase64(), HashManager.sha256Hex(encrypted.bytes),
+            "legacy_fingerprint", DuplicateLevel.NOT_DUPLICATE.name,
+            ReconciliationStatus.MATCHED.name, record.recordId, "已匹配", transactionTime
+        )))
+        val imported = ImportRepository(database, repository).observeTransactions(identity).first().single()
+        assertTrue(imported.transaction.merchant == "真机测试")
+        assertTrue(imported.matchedRecordId == record.recordId)
+        assertTrue(!database.importDao().getTransactions().single().encryptedPayload.contains("真机测试"))
+
         val groupProject = projectRepository.createProject(identity, name = "真机项目密钥测试")
         repository.addRecord(identity, PlainRecordPayload(
             recordType = "EXPENSE", amountCents = 1200, category = "测试", merchant = "项目账目",
@@ -113,22 +145,6 @@ class SecureLedgerDeviceTest {
             transactionTime = transactionTime
         ), groupProject.projectId)
         assertTrue(repository.verify(identity).isValid)
-
-        val csvTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-            .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(transactionTime))
-        val importRepository = ImportRepository(database, repository)
-        val importSummary = importRepository.importCsv(
-            identity,
-            DataSourceType.BANK,
-            "device-test.csv",
-            "交易时间,支出金额,商户,订单号,卡号\n$csvTime,23.50,真机测试,DEVICE-ORDER-1,622200001234\n".toByteArray()
-        )
-        assertTrue(importSummary.acceptedRows == 1)
-        val imported = importRepository.observeTransactions(identity).first().single()
-        assertTrue(imported.status == ReconciliationStatus.MATCHED)
-        assertTrue(imported.matchedRecordId == record.recordId)
-        val storedImport = database.importDao().getTransactions().single()
-        assertTrue(!storedImport.encryptedPayload.contains("真机测试"))
 
         repository.addCorrection(identity, CorrectionRequest(
             correctionId = "c_device_test",

@@ -6,41 +6,14 @@ import com.secureledger.core.importer.DuplicateLevel
 import com.secureledger.core.importer.ImportedTransaction
 import com.secureledger.core.importer.ReconciliationMatcher
 import com.secureledger.core.importer.ReconciliationStatus
-import com.secureledger.core.importer.StatementCsvParser
 import com.secureledger.core.importer.TransactionDirection
 import com.secureledger.core.ledger.PlainRecordPayload
-import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ImportAndReconciliationTest {
-    private val parser = StatementCsvParser(ZoneOffset.UTC)
-
-    @Test
-    fun parsesQuotedBankAndCampusRows() {
-        val bank = parser.parse(
-            "交易时间,支出金额,收入金额,商户,订单号,卡号,备注\n" +
-                "2026-09-18 12:30:00,25.60,,\"食堂,一楼\",A-1001,622200001234,午餐\n" +
-                "2026-09-18 13:00:00,,100.00,奖学金,A-1002,622200001234,入账\n",
-            DataSourceType.BANK
-        )
-        assertTrue(bank.issues.isEmpty())
-        assertEquals(2, bank.transactions.size)
-        assertEquals(2560L, bank.transactions[0].amountCents)
-        assertEquals("食堂,一楼", bank.transactions[0].merchant)
-        assertEquals(TransactionDirection.CREDIT.name, bank.transactions[1].direction)
-        assertEquals("1234", bank.transactions[0].accountLast4)
-
-        val campus = parser.parse(
-            "日期时间,金额,地点,交易类型\n2026-09-18 18:05,-8.50,东区食堂,消费\n",
-            DataSourceType.CAMPUS_CARD
-        )
-        assertEquals(850L, campus.transactions.single().amountCents)
-        assertEquals("消费", campus.transactions.single().category)
-    }
-
     @Test
     fun fingerprintAndDuplicateLevelsAreDeterministicAndConservative() {
         val base = transaction(orderId = "ORDER-1")

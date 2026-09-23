@@ -2,7 +2,7 @@ package com.secureledger.core.importer
 
 import kotlinx.serialization.Serializable
 
-/** External statement kinds supported by the local import pipeline. */
+/** Historical source codes retained so existing encrypted imports still decode. */
 enum class DataSourceType { BANK, CAMPUS_CARD }
 
 /** Normalized direction. Amounts remain positive; direction carries the sign. */
@@ -29,7 +29,7 @@ data class ImportedTransaction(
 ) {
     init {
         require(amountCents >= 0) { "Amount must be non-negative" }
-        require(sourceType in DataSourceType.entries.map(Enum<*>::name)) { "Unsupported source type" }
+        require(sourceType.matches(Regex("[A-Z][A-Z0-9_]{1,63}"))) { "Unsupported source type" }
         require(direction in TransactionDirection.entries.map(Enum<*>::name)) { "Unsupported direction" }
     }
 }
@@ -52,15 +52,6 @@ enum class ReconciliationStatus {
     IGNORED,
     SUPPLEMENTED
 }
-
-/** Non-fatal row-level parsing rejection. */
-data class CsvImportIssue(val row: Long, val message: String)
-
-/** Parsed rows and explicit rejects from one bounded CSV input. */
-data class CsvImportResult(
-    val transactions: List<ImportedTransaction>,
-    val issues: List<CsvImportIssue>
-)
 
 /** Explainable result of comparing one external anchor with local records. */
 data class ReconciliationMatch(

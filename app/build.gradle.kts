@@ -68,7 +68,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    implementation("org.apache.commons:commons-csv:1.14.1")
     val cameraXVersion = "1.5.3"
     implementation("androidx.camera:camera-core:$cameraXVersion")
     implementation("androidx.camera:camera-camera2:$cameraXVersion")

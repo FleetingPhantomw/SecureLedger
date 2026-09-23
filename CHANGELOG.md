@@ -58,4 +58,10 @@
 - Added a foreground confirmation sheet and background notification or small timed accessibility overlay. Every candidate opens an editable record review; saving still requires explicit confirmation.
 - Added privacy controls and system-service disclosure in Settings, four JVM rule tests, and two Android integration tests.
 
+### Import cleanup
+
+- Removed bank/campus CSV import screens, parser, repository entry point, and Apache Commons CSV dependency.
+- Preserved existing encrypted import tables, backup data, and historical reconciliation actions without changing the Room schema.
+- Kept the normalized import and reconciliation models available for future data sources.
+
 Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.
