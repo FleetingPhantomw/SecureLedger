@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.GeneralSecurityException
 
 sealed interface UnlockUiState {
     data object Idle : UnlockUiState
@@ -23,7 +24,8 @@ sealed interface UnlockUiState {
         val identity: KeyManager.UserIdentity,
         val unlockPerformance: KeyManager.UnlockPerformance?,
         val homePerformance: SecureLedgerApplication.HomeStartupPerformance,
-        val totalMs: Long
+        val totalMs: Long,
+        val completedAtElapsedMs: Long
     ) : UnlockUiState
     data class Error(val message: String) : UnlockUiState
 }
@@ -99,7 +101,8 @@ internal class UnlockViewModel(
                     identity = profiled.identity,
                     unlockPerformance = profiled.performance.takeUnless { it == zeroPerformance() },
                     homePerformance = home,
-                    totalMs = SystemClock.elapsedRealtime() - totalStarted
+                    totalMs = SystemClock.elapsedRealtime() - totalStarted,
+                    completedAtElapsedMs = SystemClock.elapsedRealtime()
                 )
             }.onSuccess { success ->
                 _state.value = success
@@ -116,7 +119,7 @@ internal class UnlockViewModel(
         val message = failure.message.orEmpty()
         return when {
             message.contains("两次") || message.contains("至少") || message.contains("备份") -> message
-            message.contains("tag", ignoreCase = true) || message.contains("mac", ignoreCase = true) ->
+            generateSequence(failure) { it.cause }.any { it is GeneralSecurityException } ->
                 "密码不正确，或本地数据已损坏"
             else -> "无法打开本地账本，请重试"
         }

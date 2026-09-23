@@ -6,6 +6,7 @@ local.properties
 *.iml
 .android-sdk/
 .jdk17/
+.signing/
 .gradle-dist/
 *.zip
 .sdk-license-input.txt

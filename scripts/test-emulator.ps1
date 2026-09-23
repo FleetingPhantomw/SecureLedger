@@ -19,18 +19,27 @@ $env:JAVA_HOME = $projectJdk
 $env:ANDROID_SDK_ROOT = $projectSdk
 $env:ANDROID_HOME = $projectSdk
 
-$connected = & $adb devices | Select-String -SimpleMatch $DeviceSerial
+$deviceLine = '^' + [regex]::Escape($DeviceSerial) + '\s+device$'
+$connected = & $adb devices | Select-String -Pattern $deviceLine
 if (-not $connected) {
-    Start-Process -FilePath $emulator -WindowStyle Hidden -ArgumentList @(
+    $emulatorProcess = Start-Process -FilePath $emulator -WindowStyle Hidden -PassThru -ArgumentList @(
         "-avd", $AvdName, "-no-window", "-no-audio", "-no-boot-anim",
         "-gpu", "swiftshader_indirect", "-no-snapshot-load"
     )
-    & $adb wait-for-device
+    $deviceDeadline = [DateTime]::UtcNow.AddMinutes(2)
+    do {
+        if ($emulatorProcess.HasExited) { throw "Emulator exited before connecting" }
+        $connected = & $adb devices | Select-String -Pattern $deviceLine
+        if ($connected) { break }
+        Start-Sleep -Seconds 2
+    } while ([DateTime]::UtcNow -lt $deviceDeadline)
+    if (-not $connected) { throw "Emulator did not connect over ADB" }
 }
 
 $deadline = [DateTime]::UtcNow.AddMinutes(3)
 do {
-    $bootCompleted = (& $adb -s $DeviceSerial shell getprop sys.boot_completed 2>$null).Trim()
+    $bootOutput = & $adb -s $DeviceSerial shell getprop sys.boot_completed 2>$null
+    $bootCompleted = if ($bootOutput) { ($bootOutput -join "").Trim() } else { "" }
     if ($bootCompleted -eq "1") { break }
     Start-Sleep -Seconds 2
 } while ([DateTime]::UtcNow -lt $deadline)

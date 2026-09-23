@@ -40,6 +40,14 @@ Use JDK 17 and Android SDK 35:
 
 The installable debug APK is `app/build/outputs/apk/debug/app-debug.apk`.
 
+Build a separately signed, installable Release APK with:
+
+```powershell
+.\scripts\build-release.ps1
+```
+
+The result is `app/build/outputs/apk/release/app-release.apk`. On first use, the script creates a local signing key in the ignored `.signing/` directory and protects its randomly generated password with Windows DPAPI. **Back up the `.p12` key and its password separately** before installing this version for long-term use; the DPAPI file is bound to this Windows user and cannot be used alone on another computer. A different signing key cannot update an existing installation without uninstalling it, which would remove its local vault unless a portable encrypted backup has been made. Debug and Release are signed by different keys and likewise cannot update one another in place. See [release signing guidance](docs/RELEASE_SIGNING.md).
+
 Physical-device instrumentation is intentionally isolated in `com.secureledger.test` and uses in-memory Room databases plus namespaced test vaults. It does not clear the production package or its data:
 
 ```powershell
@@ -58,7 +66,8 @@ When no phone is connected, Android Studio can run the same suite on the API 35 
 
 Open the repository root as a Gradle project in Android Studio or IntelliJ IDEA, select JDK 17, and use the Gradle wrapper. Local SDK and IDE metadata remain untracked.
 
-The device suite covers Android Keystore/Room persistence, tamper detection, OCR/CameraX, accessibility privacy filtering, backup round-trip, QR scanning, recipient-bound project invitation, cross-replica sync and two-user AA co-signing.
+The device suite covers Android Keystore/Room persistence, tamper detection, OCR/CameraX, accessibility privacy filtering, backup round-trip, QR scanning, recipient-bound project invitation, cross-replica sync, two-user AA co-signing, and rotation-safe unlock state with wrong-password retry.
+The [verification matrix](docs/TESTING.md) distinguishes automated, manually checked, and still-pending physical-device coverage.
 
 ## Privacy and recovery
 

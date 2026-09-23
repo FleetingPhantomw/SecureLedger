@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.SystemClock
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -66,6 +68,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -186,6 +189,7 @@ fun SecureLedgerApp(
         }
     )
     val unlockState by unlockViewModel.state.collectAsState()
+    var homeFrameReported by remember { mutableStateOf(false) }
     LaunchedEffect(unlockState) {
         (unlockState as? UnlockUiState.Success)?.let { identity = it.identity }
     }
@@ -212,7 +216,16 @@ fun SecureLedgerApp(
             sharedImageUri,
             onSharedImageConsumed,
             identity!!,
+            onHomeFirstFrame = {
+                if (!homeFrameReported) {
+                    homeFrameReported = true
+                    (unlockState as? UnlockUiState.Success)?.let { success ->
+                        Log.d("SecureLedgerPerf", "homeFirstInteractiveApprox=${success.totalMs + SystemClock.elapsedRealtime() - success.completedAtElapsedMs}ms")
+                    }
+                }
+            },
             onLock = {
+                homeFrameReported = false
                 unlockViewModel.reset()
                 identity = null
             }
@@ -328,6 +341,7 @@ private fun LedgerShell(
     sharedImageUri: Uri?,
     onSharedImageConsumed: () -> Unit,
     identity: KeyManager.UserIdentity,
+    onHomeFirstFrame: () -> Unit,
     onLock: () -> Unit
 ) {
     val context = LocalContext.current
@@ -358,6 +372,11 @@ private fun LedgerShell(
     val projectMembers by viewModel.projectMembers.collectAsStateCompat()
     val bankCards by viewModel.bankCards.collectAsStateCompat()
     val joinRequest = remember(identity.userId) { viewModel.createJoinRequest() }
+    LaunchedEffect(identity.userId) {
+        // The first frame after the home NavHost is composed approximates when controls become usable.
+        withFrameNanos { }
+        onHomeFirstFrame()
+    }
     NavHost(navController = navController, startDestination = LedgerRoute.MAIN) {
         composable(LedgerRoute.MAIN) {
             LedgerMainTabs(
@@ -495,37 +514,62 @@ private fun LedgerShell(
         }
     }
     pendingCandidate?.let { candidate ->
-        ModalBottomSheet(onDismissRequest = CandidateInbox::dismiss) {
-            Column(Modifier.fillMaxWidth().padding(LedgerSpacing.page), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
-                Text("检测到一笔消费", style = MaterialTheme.typography.titleLarge)
-                Text("¥${formatCents(candidate.amountCents)}", style = MaterialTheme.typography.headlineMedium)
-                Text(listOf(candidate.merchant, candidate.paymentChannel).filter(String::isNotBlank).joinToString(" · "))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(onClick = CandidateInbox::dismiss, modifier = Modifier.weight(1f)) { Text("忽略") }
-                    Button(onClick = {
-                        reviewingCandidate = candidate
-                        CandidateInbox.dismiss()
-                        navController.navigate(LedgerRoute.REVIEW)
-                    }, modifier = Modifier.weight(1f)) { Text("记一笔") }
-                }
-            }
-        }
+        CandidateReviewSheet(candidate, onDismiss = CandidateInbox::dismiss, onReview = {
+            reviewingCandidate = candidate
+            CandidateInbox.dismiss()
+            navController.navigate(LedgerRoute.REVIEW)
+        })
     }
-    BackHandler(enabled = hasUnsavedChanges && pendingCandidate == null && !discardVisible) {
+    DiscardChangesBackGuard(hasUnsavedChanges, pendingCandidate != null, discardVisible) {
         discardVisible = true
     }
     if (discardVisible) {
-        AlertDialog(
-            onDismissRequest = { discardVisible = false },
-            title = { Text("放弃未保存的修改？") },
-            text = { Text("离开后，本页修改不会保留。") },
-            confirmButton = { TextButton(onClick = {
+        DiscardChangesDialog(onDismiss = { discardVisible = false }, onDiscard = {
                 discardVisible = false
                 dirtyRoute = null
                 navController.popBackStack()
-            }) { Text("放弃修改") } },
-            dismissButton = { TextButton(onClick = { discardVisible = false }) { Text("继续编辑") } }
-        )
+        })
+    }
+}
+
+@Composable
+internal fun DiscardChangesBackGuard(
+    hasUnsavedChanges: Boolean,
+    hasPendingCandidate: Boolean,
+    discardVisible: Boolean,
+    onRequestDiscard: () -> Unit
+) {
+    BackHandler(enabled = hasUnsavedChanges && !hasPendingCandidate && !discardVisible, onBack = onRequestDiscard)
+}
+
+@Composable
+internal fun DiscardChangesDialog(onDismiss: () -> Unit, onDiscard: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("放弃未保存的修改？") },
+        text = { Text("离开后，本页修改不会保留。") },
+        confirmButton = { TextButton(onClick = onDiscard) { Text("放弃修改") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("继续编辑") } }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun CandidateReviewSheet(
+    candidate: TransactionCandidate,
+    onDismiss: () -> Unit,
+    onReview: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(LedgerSpacing.page), verticalArrangement = Arrangement.spacedBy(LedgerSpacing.md)) {
+            Text("检测到一笔消费", style = MaterialTheme.typography.titleLarge)
+            Text("¥${formatCents(candidate.amountCents)}", style = MaterialTheme.typography.headlineMedium)
+            Text(listOf(candidate.merchant, candidate.paymentChannel).filter(String::isNotBlank).joinToString(" · "))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("忽略") }
+                Button(onClick = onReview, modifier = Modifier.weight(1f)) { Text("记一笔") }
+            }
+        }
     }
 }
 

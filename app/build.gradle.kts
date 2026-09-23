@@ -6,6 +6,19 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val releaseSigningValues = listOf(
+    "SECURELEDGER_RELEASE_KEYSTORE",
+    "SECURELEDGER_RELEASE_STORE_PASSWORD",
+    "SECURELEDGER_RELEASE_KEY_ALIAS",
+    "SECURELEDGER_RELEASE_KEY_PASSWORD"
+).associateWith(System::getenv)
+val hasReleaseSigning = releaseSigningValues.values.any { !it.isNullOrBlank() }
+if (hasReleaseSigning) {
+    require(releaseSigningValues.values.all { !it.isNullOrBlank() }) {
+        "All SecureLedger release signing environment variables must be set together"
+    }
+}
+
 android {
     namespace = "com.secureledger"
     compileSdk = 35
@@ -21,8 +34,20 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("localRelease") {
+                storeFile = file(releaseSigningValues.getValue("SECURELEDGER_RELEASE_KEYSTORE")!!)
+                storePassword = releaseSigningValues.getValue("SECURELEDGER_RELEASE_STORE_PASSWORD")
+                keyAlias = releaseSigningValues.getValue("SECURELEDGER_RELEASE_KEY_ALIAS")
+                keyPassword = releaseSigningValues.getValue("SECURELEDGER_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("localRelease")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -56,6 +81,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.navigation:navigation-compose:2.8.2")
@@ -82,4 +108,5 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }
