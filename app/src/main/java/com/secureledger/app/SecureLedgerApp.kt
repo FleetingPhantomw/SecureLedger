@@ -94,10 +94,6 @@ import com.secureledger.core.ocr.RecognizedOrder
 import com.secureledger.data.repository.InvitationRepository
 import com.secureledger.feature.project.ProjectAccessScreen
 import com.secureledger.data.entity.ProjectMemberEntity
-import com.secureledger.feature.sync.NetworkSyncSection
-import com.secureledger.integration.network.LanShareSession
-import com.secureledger.integration.network.LanSyncController
-import com.secureledger.integration.network.RelaySyncClient
 import com.secureledger.data.repository.BackupRepository
 import com.secureledger.data.repository.BankCardRepository
 import com.secureledger.data.entity.BankCardEntity
@@ -164,8 +160,6 @@ fun SecureLedgerApp(
             application.ocrEngine,
             application.orderParser,
             application.invitationRepository,
-            application.lanSyncController,
-            application.relaySyncClient,
             application.backupRepository,
             application.bankCardRepository,
             sharedImageUri,
@@ -282,8 +276,6 @@ private fun LedgerShell(
     ocrEngine: OcrEngine,
     orderParser: OrderParser,
     invitationRepository: InvitationRepository,
-    lanSyncController: LanSyncController,
-    relaySyncClient: RelaySyncClient,
     backupRepository: BackupRepository,
     bankCardRepository: BankCardRepository,
     sharedImageUri: Uri?,
@@ -311,7 +303,7 @@ private fun LedgerShell(
     val viewModel = remember(identity.userId) {
         LedgerViewModel(
             repository, projectRepository, settlementRepository, syncRepository, importRepository,
-            ocrEngine, orderParser, identity, invitationRepository, lanSyncController, relaySyncClient,
+            ocrEngine, orderParser, identity, invitationRepository,
             backupRepository, bankCardRepository
         )
     }
@@ -328,7 +320,6 @@ private fun LedgerShell(
             accessibilityPreferences = (context.applicationContext as SecureLedgerApplication).accessibilityPreferences,
             onBack = { settingsVisible = false },
             onLock = {
-                viewModel.stopLan()
                 onSharedImageConsumed()
                 settingsVisible = false
                 onLock()
@@ -489,12 +480,7 @@ private fun LedgerShell(
                 padding = padding,
                 projects = projects,
                 onExport = viewModel::exportSyncPackage,
-                onImport = viewModel::importSyncPackage,
-                onStartLan = viewModel::startLan,
-                onStopLan = viewModel::stopLan,
-                onReceiveLan = viewModel::receiveLan,
-                onRelayUpload = viewModel::relayUpload,
-                onRelayDownload = viewModel::relayDownload
+                onImport = viewModel::importSyncPackage
             )
             Tab.SECURITY -> SecurityScreen(padding, identity, report) { viewModel.verify() }
         }
@@ -612,19 +598,13 @@ private fun SyncScreen(
     padding: PaddingValues,
     projects: List<ProjectEntity>,
     onExport: (String, (Result<String>) -> Unit) -> Unit,
-    onImport: (String, (SyncImportResult) -> Unit) -> Unit,
-    onStartLan: (String, String) -> Result<LanShareSession>,
-    onStopLan: () -> Unit,
-    onReceiveLan: (String, String, (Result<SyncImportResult>) -> Unit) -> Unit,
-    onRelayUpload: (String, String, String, (Result<String>) -> Unit) -> Unit,
-    onRelayDownload: (String, String, (Result<SyncImportResult>) -> Unit) -> Unit
+    onImport: (String, (SyncImportResult) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     var exported by remember { mutableStateOf<String?>(null) }
     var manualInput by remember { mutableStateOf("") }
     var operationError by remember { mutableStateOf<String?>(null) }
     var importResult by remember { mutableStateOf<SyncImportResult?>(null) }
-    var exportedProjectId by remember { mutableStateOf<String?>(null) }
 
     fun submitImport(value: String) {
         if (value.isBlank()) {
@@ -666,7 +646,7 @@ private fun SyncScreen(
                     }
                     Button(onClick = {
                         onExport(project.projectId) { result ->
-                            result.onSuccess { exported = it; exportedProjectId = project.projectId; operationError = null }
+                            result.onSuccess { exported = it; operationError = null }
                                 .onFailure { operationError = it.message ?: "同步包生成失败" }
                         }
                     }) { Text("生成二维码") }
@@ -732,15 +712,6 @@ private fun SyncScreen(
                 }
             }
         }
-        NetworkSyncSection(
-            exportedPackage = exported,
-            exportedProjectId = exportedProjectId,
-            onStartLan = onStartLan,
-            onStopLan = onStopLan,
-            onReceiveLan = onReceiveLan,
-            onRelayUpload = onRelayUpload,
-            onRelayDownload = onRelayDownload
-        )
         Text("重复、过期、损坏或来源异常的数据会被拒绝。", style = MaterialTheme.typography.bodySmall)
     }
 }

@@ -27,9 +27,6 @@ import com.secureledger.data.repository.SettlementRepository
 import com.secureledger.data.repository.SyncImportResult
 import com.secureledger.data.repository.SyncRepository
 import com.secureledger.data.entity.BankCardEntity
-import com.secureledger.integration.network.LanShareSession
-import com.secureledger.integration.network.LanSyncController
-import com.secureledger.integration.network.RelaySyncClient
 import com.secureledger.integration.ocr.OcrEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,8 +47,6 @@ internal class LedgerViewModel(
     private val orderParser: OrderParser,
     private val identity: KeyManager.UserIdentity,
     private val invitationRepository: InvitationRepository,
-    private val lanSyncController: LanSyncController,
-    private val relaySyncClient: RelaySyncClient,
     private val backupRepository: BackupRepository,
     private val bankCardRepository: BankCardRepository
 ) : ViewModel() {
@@ -150,21 +145,6 @@ internal class LedgerViewModel(
         callback(result)
     }
 
-    fun startLan(projectId: String, encoded: String): Result<LanShareSession> = runCatching { lanSyncController.start(projectId, encoded) }
-    fun stopLan() = lanSyncController.stop()
-
-    fun receiveLan(url: String, token: String, callback: (Result<SyncImportResult>) -> Unit) = viewModelScope.launch {
-        callback(runCatching { syncRepository.import(identity, lanSyncController.fetch(url, token)) })
-    }
-
-    fun relayUpload(endpoint: String, token: String, encoded: String, callback: (Result<String>) -> Unit) = viewModelScope.launch {
-        callback(runCatching { relaySyncClient.upload(endpoint, token, encoded) })
-    }
-
-    fun relayDownload(endpoint: String, token: String, callback: (Result<SyncImportResult>) -> Unit) = viewModelScope.launch {
-        callback(runCatching { syncRepository.import(identity, relaySyncClient.download(endpoint, token)) })
-    }
-
     fun createBackup(password: CharArray, callback: (Result<ByteArray>) -> Unit) = viewModelScope.launch {
         try { callback(runCatching { backupRepository.export(identity, password) }) }
         finally { password.fill('\u0000') }
@@ -204,11 +184,6 @@ internal class LedgerViewModel(
         val started = SystemClock.elapsedRealtime()
         _report.value = withContext(Dispatchers.Default) { repository.verify(identity) }
         Log.d("SecureLedgerPerf", "integrityValidation=${SystemClock.elapsedRealtime() - started}ms records=${_report.value?.checkedRecords ?: 0}")
-    }
-
-    override fun onCleared() {
-        lanSyncController.stop()
-        super.onCleared()
     }
 
 }

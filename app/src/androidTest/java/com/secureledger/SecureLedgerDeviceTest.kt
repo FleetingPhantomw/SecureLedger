@@ -25,7 +25,6 @@ import com.secureledger.data.repository.BackupRepository
 import com.secureledger.data.repository.ProjectKeyRepository
 import com.secureledger.data.repository.InvitationRepository
 import com.secureledger.data.repository.SettlementRepository
-import com.secureledger.integration.network.LanSyncController
 import com.secureledger.core.merkle.MerkleTree
 import com.secureledger.core.importer.DataSourceType
 import com.secureledger.core.importer.DuplicateLevel
@@ -167,10 +166,6 @@ class SecureLedgerDeviceTest {
 
         val syncRepository = SyncRepository(database, projectKeys)
         val encoded = syncRepository.export(identity, "personal")
-        val lan = LanSyncController(context)
-        val lanSession = lan.start("personal", encoded)
-        assertTrue(lan.fetch(lanSession.url, lanSession.token) == encoded)
-        lan.stop()
         val accepted = syncRepository.import(identity, encoded)
         assertTrue(accepted.status == SyncImportStatus.ACCEPTED)
         assertTrue(accepted.duplicateRecords == 2)

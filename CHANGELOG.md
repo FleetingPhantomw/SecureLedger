@@ -64,4 +64,9 @@
 - Preserved existing encrypted import tables, backup data, and historical reconciliation actions without changing the Room schema.
 - Kept the normalized import and reconciliation models available for future data sources.
 
+### Sync transport cleanup
+
+- Removed LAN/P2P and relay UI, service adapters, network permissions, cleartext allowance, and NanoHTTPD dependency.
+- Kept the signed sync package, replay protection, record verification, and QR import/export path unchanged at this stage.
+
 Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.

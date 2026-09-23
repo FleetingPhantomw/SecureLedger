@@ -24,7 +24,7 @@ Original records are append-only. A correction is a separately encrypted and sig
 - Immutable corrections, record detail/audit view and a security centre with exact failures and last-check time.
 - Multi-user project creation, member list, signed join/invitation exchange and independent project keys.
 - AA balances, deterministic transfer plan, project Merkle-bound proof and QR/clipboard multi-member co-signing.
-- QR, tokenized LAN and opaque HTTPS relay transports over one validated secure package format.
+- Signed QR sync packages with replay protection and record validation.
 - Opt-in payment candidate recognition in selected apps, with editable rules and mandatory review before saving.
 - Bundled PP-OCRv6_small Chinese OCR from camera, image, Android share intent or clipboard text, followed by mandatory confirmation.
 - Historical encrypted statement imports remain readable and reconcilable; new CSV imports have been removed.
@@ -58,10 +58,10 @@ When no phone is connected, Android Studio can run the same suite on the API 35 
 
 Open the repository root as a Gradle project in Android Studio or IntelliJ IDEA, select JDK 17, and use the Gradle wrapper. Local SDK and IDE metadata remain untracked.
 
-The device suite covers Android Keystore/Room persistence, tamper detection, OCR/CameraX, accessibility privacy filtering, LAN transfer, backup round-trip, QR scanning, recipient-bound project invitation, cross-replica sync and two-user AA co-signing.
+The device suite covers Android Keystore/Room persistence, tamper detection, OCR/CameraX, accessibility privacy filtering, backup round-trip, QR scanning, recipient-bound project invitation, cross-replica sync and two-user AA co-signing.
 
 ## Privacy and recovery
 
-Ledger data, imported statements, screenshots and private keys remain local unless the user explicitly exports or synchronizes them. LAN/relay payloads are already encrypted and signed; relay endpoints must use HTTPS except explicit localhost development endpoints. Forgotten vault passwords cannot be bypassed: recovery requires an independently password-protected `.sldb` backup. Restore is accepted only into an empty vault and is validated before commit.
+Ledger data, imported statements, screenshots and private keys remain local unless the user explicitly exports or synchronizes them. Sync QR content is encrypted and signed. Forgotten vault passwords cannot be bypassed: recovery requires an independently password-protected `.sldb` backup. Restore is accepted only into an empty vault and is validated before commit.
 
 Third-party components, versions, sources, licenses and purposes are recorded in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

@@ -7,7 +7,7 @@ import java.util.Base64
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
-/** Compact, versioned JSON transport used by QR, clipboard, LAN, and relay adapters. */
+/** Compact, versioned JSON transport used by the QR sync flow. */
 object SecureSyncCodec {
     const val PREFIX = "SL1:"
     private const val MAX_COMPRESSED_BYTES = 512 * 1024

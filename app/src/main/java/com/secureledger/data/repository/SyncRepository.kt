@@ -29,7 +29,7 @@ data class SyncImportResult(
     val accepted: Boolean get() = status == SyncImportStatus.ACCEPTED
 }
 
-/** Secure package persistence boundary shared by QR, clipboard, LAN, and relay adapters. */
+/** Secure package persistence boundary shared by QR and manual transport. */
 class SyncRepository(
     private val database: AppDatabase,
     private val projectKeys: ProjectKeyRepository? = null

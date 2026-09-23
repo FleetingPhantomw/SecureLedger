@@ -8,7 +8,7 @@ import com.secureledger.core.ledger.CanonicalRecord
 import com.secureledger.core.ledger.SecureRecord
 import kotlinx.serialization.Serializable
 
-/** Signed QR/LAN/relay transport envelope. Record validation happens before import. */
+/** Signed sync envelope. Record validation happens before QR import. */
 @Serializable
 data class SecureSyncPackage(
     val protocolVersion: Int,

@@ -14,8 +14,6 @@ import com.secureledger.integration.accessibility.AccessibilityPreferences
 import com.secureledger.core.ocr.OrderParser
 import com.secureledger.data.repository.ProjectKeyRepository
 import com.secureledger.data.repository.InvitationRepository
-import com.secureledger.integration.network.LanSyncController
-import com.secureledger.integration.network.RelaySyncClient
 import com.secureledger.data.repository.BackupRepository
 import com.secureledger.data.repository.BankCardRepository
 import android.os.SystemClock
@@ -43,8 +41,6 @@ class SecureLedgerApplication : Application() {
     val accessibilityPreferences by lazy { AccessibilityPreferences(this) }
     val orderParser by lazy { OrderParser() }
     val invitationRepository by lazy { InvitationRepository(database, projectKeyRepository) }
-    val lanSyncController by lazy { LanSyncController(this) }
-    val relaySyncClient by lazy { RelaySyncClient() }
     val backupRepository by lazy { BackupRepository(database, keyManager) }
     val bankCardRepository by lazy { BankCardRepository(database.bankCardDao()) }
 
