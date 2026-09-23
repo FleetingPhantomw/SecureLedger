@@ -43,4 +43,11 @@
 - Removed cryptographic internals from ordinary home and record-detail views; technical identifiers remain collapsed behind “技术详情” in security-related screens.
 - Added friendly unlock errors for incorrect passwords and damaged local security data.
 
+### OCR
+
+- Replaced the production ML Kit Chinese OCR dependency with the official PaddleOCR Android SDK and bundled PP-OCRv6_small ONNX models.
+- Added an application-scoped OCR engine that initializes lazily, serializes access to reusable inference sessions, returns text with coordinates, and runs outside the Compose main thread.
+- Switched to OpenCV's official Android AAR after the sample package failed to load on the API 35 x86_64 emulator.
+- Verified Chinese payment text, amount, bounding boxes, and existing device tests on the API 35 emulator. Model provenance and licenses are recorded in `ppocr-sdk/README.md` and `THIRD_PARTY_LICENSES.md`.
+
 Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.

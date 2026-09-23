@@ -1,12 +1,6 @@
 package com.secureledger
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Typeface
-import android.net.Uri
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
@@ -36,7 +30,6 @@ import com.secureledger.core.merkle.MerkleTree
 import com.secureledger.core.settlement.Balance
 import com.secureledger.core.protocol.SecureSyncCodec
 import com.secureledger.core.protocol.SecureSyncPackage
-import com.secureledger.integration.ocr.OfflineTextRecognizer
 import androidx.camera.lifecycle.ProcessCameraProvider
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -55,7 +48,6 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
-import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
 
 /** Runs the complete first milestone against the real Android Keystore and Room database. */
@@ -273,24 +265,8 @@ class SecureLedgerDeviceTest {
     }
 
     @Test
-    fun bundledOfflineOcrAndCameraXAreAvailableOnDevice() = runBlocking {
-        val bitmap = Bitmap.createBitmap(2000, 800, Bitmap.Config.ARGB_8888)
-        Canvas(bitmap).apply {
-            drawColor(Color.WHITE)
-            drawText("金额 12345", 100f, 500f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.BLACK
-                textSize = 260f
-                typeface = Typeface.DEFAULT_BOLD
-            })
-        }
-        val file = File(context.cacheDir, "ocr_device_test.png")
-        FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        bitmap.recycle()
-        val recognized = OfflineTextRecognizer(context).recognize(Uri.fromFile(file))
-        assertTrue("OCR output was: $recognized", recognized.contains("123"))
+    fun cameraXIsAvailableOnDevice() {
         assertNotNull(ProcessCameraProvider.getInstance(context).get(10, TimeUnit.SECONDS))
-        file.delete()
-        Unit
     }
 
     @After

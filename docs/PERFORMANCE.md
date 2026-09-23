@@ -18,6 +18,9 @@ Environment: Android 15 / API 35 x86_64 Google APIs AVD, Windows host with WHPX,
 | Required repository initialization | 37 ms |
 | Personal-project readiness | 42 ms |
 | Deferred integrity/Merkle validation, empty ledger | 389 ms |
+| PP-OCRv6_small first SDK initialization | 731 ms |
+| PP-OCRv6_small ONNX model load (included above) | 406 ms |
+| PP-OCRv6_small first inference, synthetic 1080 × 440 Chinese payment image | 311 ms, 2 lines |
 
 Argon2id remains configured at 64 MiB, 3 iterations, parallelism 1. Parameters were not weakened based on emulator-only data.
 
@@ -27,8 +30,8 @@ Argon2id remains configured at 64 MiB, 3 iterations, parallelism 1. Parameters w
 - Backup I/O and Room opening run on `Dispatchers.IO`.
 - Compose owns only input, progress state, and navigation.
 - The home screen waits for Room and the personal project, but full integrity validation runs after navigation.
-- OCR model loading, historical statistics, and other non-essential work must not be added to the unlock path.
+- OCR model loading is lazy and runs on `Dispatchers.IO`; it is not part of vault unlock. The application-scoped engine reuses its sessions for subsequent scans.
 
 ## Remaining measurements
 
-Before release, repeat on at least one representative physical phone and record cold start, unlock, Room open, home first-interactive time, PaddleOCR model load, and first/subsequent OCR inference times.
+Before release, repeat on at least one representative physical phone and record cold start, unlock, Room open, home first-interactive time, PaddleOCR model load, and first/subsequent OCR inference times on actual order screenshots.

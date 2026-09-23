@@ -32,7 +32,7 @@ import com.secureledger.data.entity.BankCardEntity
 import com.secureledger.integration.network.LanShareSession
 import com.secureledger.integration.network.LanSyncController
 import com.secureledger.integration.network.RelaySyncClient
-import com.secureledger.integration.ocr.OfflineTextRecognizer
+import com.secureledger.integration.ocr.OcrEngine
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,7 +49,7 @@ internal class LedgerViewModel(
     private val settlementRepository: SettlementRepository,
     private val syncRepository: SyncRepository,
     private val importRepository: ImportRepository,
-    private val offlineTextRecognizer: OfflineTextRecognizer,
+    private val ocrEngine: OcrEngine,
     private val orderParser: OrderParser,
     private val identity: KeyManager.UserIdentity,
     private val invitationRepository: InvitationRepository,
@@ -191,7 +191,7 @@ internal class LedgerViewModel(
 
     fun ignoreImport(importedId: String) = viewModelScope.launch { importRepository.ignore(importedId) }
     fun recognizeOrder(uri: Uri, callback: (Result<RecognizedOrder>) -> Unit) = viewModelScope.launch {
-        callback(runCatching { orderParser.parse(offlineTextRecognizer.recognize(uri)) })
+        callback(runCatching { orderParser.parse(ocrEngine.recognize(uri).text) })
     }
     fun parseOrderText(text: String): Result<RecognizedOrder> = runCatching { orderParser.parse(text) }
     fun verify() = viewModelScope.launch { refreshIntegrity() }

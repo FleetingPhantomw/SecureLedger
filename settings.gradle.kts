@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SecureLedger"
 include(":app")
+include(":ppocr-sdk")

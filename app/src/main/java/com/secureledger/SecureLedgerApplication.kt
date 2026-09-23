@@ -8,7 +8,8 @@ import com.secureledger.data.repository.ProjectRepository
 import com.secureledger.data.repository.SettlementRepository
 import com.secureledger.data.repository.SyncRepository
 import com.secureledger.data.repository.ImportRepository
-import com.secureledger.integration.ocr.OfflineTextRecognizer
+import com.secureledger.integration.ocr.OcrEngine
+import com.secureledger.integration.ocr.PaddleOcrEngine
 import com.secureledger.core.ocr.OrderParser
 import com.secureledger.data.repository.ProjectKeyRepository
 import com.secureledger.data.repository.InvitationRepository
@@ -37,7 +38,7 @@ class SecureLedgerApplication : Application() {
     val settlementRepository by lazy { SettlementRepository(database, projectKeyRepository) }
     val syncRepository by lazy { SyncRepository(database, projectKeyRepository) }
     val importRepository by lazy { ImportRepository(database, ledgerRepository) }
-    val offlineTextRecognizer by lazy { OfflineTextRecognizer(this) }
+    val ocrEngine: OcrEngine by lazy { PaddleOcrEngine(this) }
     val orderParser by lazy { OrderParser() }
     val invitationRepository by lazy { InvitationRepository(database, projectKeyRepository) }
     val lanSyncController by lazy { LanSyncController(this) }

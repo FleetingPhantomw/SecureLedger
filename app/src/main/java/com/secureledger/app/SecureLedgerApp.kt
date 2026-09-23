@@ -89,7 +89,7 @@ import com.secureledger.core.importer.DataSourceType
 import com.secureledger.feature.importer.ImportCenterScreen
 import com.secureledger.feature.importer.ReconciliationScreen
 import com.secureledger.feature.ocr.OcrImportScreen
-import com.secureledger.integration.ocr.OfflineTextRecognizer
+import com.secureledger.integration.ocr.OcrEngine
 import com.secureledger.core.ocr.OrderParser
 import com.secureledger.core.ocr.RecognizedOrder
 import com.secureledger.data.repository.InvitationRepository
@@ -160,7 +160,7 @@ fun SecureLedgerApp(
             application.settlementRepository,
             application.syncRepository,
             application.importRepository,
-            application.offlineTextRecognizer,
+            application.ocrEngine,
             application.orderParser,
             application.invitationRepository,
             application.lanSyncController,
@@ -278,7 +278,7 @@ private fun LedgerShell(
     settlementRepository: SettlementRepository,
     syncRepository: SyncRepository,
     importRepository: ImportRepository,
-    offlineTextRecognizer: OfflineTextRecognizer,
+    ocrEngine: OcrEngine,
     orderParser: OrderParser,
     invitationRepository: InvitationRepository,
     lanSyncController: LanSyncController,
@@ -309,7 +309,7 @@ private fun LedgerShell(
     val viewModel = remember(identity.userId) {
         LedgerViewModel(
             repository, projectRepository, settlementRepository, syncRepository, importRepository,
-            offlineTextRecognizer, orderParser, identity, invitationRepository, lanSyncController, relaySyncClient,
+            ocrEngine, orderParser, identity, invitationRepository, lanSyncController, relaySyncClient,
             backupRepository, bankCardRepository
         )
     }

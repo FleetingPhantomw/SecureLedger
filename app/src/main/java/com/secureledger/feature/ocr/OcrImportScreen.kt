@@ -98,8 +98,8 @@ fun OcrImportScreen(
             Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("离线订单识别", style = MaterialTheme.typography.headlineSmall)
-            Text("使用随应用提供的 ML Kit 中文模型，图片不会上传。识别结果必须由你确认后才写入可信账本。")
+            Text("图片识别记账", style = MaterialTheme.typography.headlineSmall)
+            Text("图片仅在本机识别。请核对金额和商户后保存。")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = { picker.launch(arrayOf("image/*")) }, modifier = Modifier.weight(1f)) { Text("选择截图") }
                 OutlinedButton(onClick = { cameraVisible = true }, modifier = Modifier.weight(1f)) { Text("拍摄票据") }
