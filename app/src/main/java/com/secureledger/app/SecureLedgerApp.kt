@@ -42,6 +42,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
@@ -105,6 +106,8 @@ import com.secureledger.data.entity.BankCardEntity
 import com.secureledger.core.ledger.ExpenseCategoryCode
 import com.secureledger.core.ledger.PaymentChannelCode
 import com.secureledger.feature.settings.SettingsScreen
+import com.secureledger.core.accessibility.TransactionCandidate
+import com.secureledger.integration.accessibility.CandidateInbox
 import com.secureledger.feature.auth.UnlockUiState
 import com.secureledger.feature.auth.UnlockViewModel
 import com.secureledger.core.backup.PortableBackupCodec
@@ -293,6 +296,8 @@ private fun LedgerShell(
     val context = LocalContext.current
     var tab by remember { mutableStateOf(Tab.HOME) }
     var addVisible by remember { mutableStateOf(false) }
+    var reviewingCandidate by remember { mutableStateOf<TransactionCandidate?>(null) }
+    val pendingCandidate by CandidateInbox.pending.collectAsState()
     var correctionTarget by remember { mutableStateOf<DecryptedRecord?>(null) }
     var selectedRecord by remember { mutableStateOf<DecryptedRecord?>(null) }
     var projectCreateVisible by remember { mutableStateOf(false) }
@@ -323,6 +328,7 @@ private fun LedgerShell(
     if (settingsVisible) {
         SettingsScreen(
             identity = identity,
+            accessibilityPreferences = (context.applicationContext as SecureLedgerApplication).accessibilityPreferences,
             onBack = { settingsVisible = false },
             onLock = {
                 viewModel.stopLan()
@@ -415,6 +421,16 @@ private fun LedgerShell(
         )
         return
     }
+    reviewingCandidate?.let { candidate ->
+        AddRecordScreen(
+            projects = projects,
+            bankCards = bankCards.filter(BankCardEntity::enabled),
+            candidate = candidate,
+            onBack = { reviewingCandidate = null },
+            onSave = { payload, projectId -> viewModel.add(payload, projectId) { reviewingCandidate = null } }
+        )
+        return
+    }
     selectedRecord?.let { record ->
         RecordDetailScreen(record, onBack = { selectedRecord = null }, onCorrect = {
             selectedRecord = null
@@ -501,6 +517,19 @@ private fun LedgerShell(
                 onRelayDownload = viewModel::relayDownload
             )
             Tab.SECURITY -> SecurityScreen(padding, identity, report) { viewModel.verify() }
+        }
+    }
+    pendingCandidate?.let { candidate ->
+        ModalBottomSheet(onDismissRequest = CandidateInbox::dismiss) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("检测到一笔消费", style = MaterialTheme.typography.titleLarge)
+                Text("¥${formatCents(candidate.amountCents)}", style = MaterialTheme.typography.headlineMedium)
+                Text(listOf(candidate.merchant, candidate.paymentChannel).filter(String::isNotBlank).joinToString(" · "))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = CandidateInbox::dismiss, modifier = Modifier.weight(1f)) { Text("忽略") }
+                    Button(onClick = { reviewingCandidate = candidate; CandidateInbox.dismiss() }, modifier = Modifier.weight(1f)) { Text("记一笔") }
+                }
+            }
         }
     }
 }
@@ -964,29 +993,30 @@ private fun RecordRow(record: DecryptedRecord, onOpen: (() -> Unit)? = null, onC
 private fun AddRecordScreen(
     projects: List<ProjectEntity>,
     bankCards: List<BankCardEntity>,
+    candidate: TransactionCandidate? = null,
     onBack: () -> Unit,
     onSave: (PlainRecordPayload, String) -> Unit
 ) {
     val context = LocalContext.current
     var recordType by remember { mutableStateOf("EXPENSE") }
     var projectId by remember { mutableStateOf(ProjectRepository.PERSONAL_PROJECT_ID) }
-    var amount by remember { mutableStateOf("") }
-    var merchant by remember { mutableStateOf("") }
-    var category by remember { mutableStateOf(ExpenseCategoryCode.FOOD_TOBACCO_ALCOHOL) }
+    var amount by remember(candidate) { mutableStateOf(candidate?.amountCents?.let(::formatCents).orEmpty()) }
+    var merchant by remember(candidate) { mutableStateOf(candidate?.merchant.orEmpty()) }
+    var category by remember(candidate) { mutableStateOf(if (candidate == null) ExpenseCategoryCode.FOOD_TOBACCO_ALCOHOL else ExpenseCategoryCode.fromLegacy(candidate.merchant)) }
     var note by remember { mutableStateOf("") }
-    var paymentChannel by remember { mutableStateOf(PaymentChannelCode.ALIPAY) }
+    var paymentChannel by remember(candidate) { mutableStateOf(candidate?.paymentChannel?.let(PaymentChannelCode::fromLegacy)?.takeIf { it != PaymentChannelCode.LEGACY_OTHER } ?: PaymentChannelCode.ALIPAY) }
     var selectedBankCardId by remember { mutableStateOf<String?>(null) }
-    var tags by remember { mutableStateOf("") }
-    var transactionTime by remember { mutableStateOf(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.now())) }
+    var tags by remember(candidate) { mutableStateOf(if (candidate == null) "" else "auto-detected,user-confirmed") }
+    var transactionTime by remember(candidate) { mutableStateOf(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(candidate?.transactionTime ?: System.currentTimeMillis()))) }
     var vouchers by remember { mutableStateOf<List<String>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     val voucherPicker = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.take(5).forEach { uri -> runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
         vouchers = uris.take(5).map(Uri::toString)
     }
-    Scaffold(topBar = { TopAppBar(title = { Text("新增账目") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
+    Scaffold(topBar = { TopAppBar(title = { Text(if (candidate == null) "新增账目" else "确认消费") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("记录真实交易金额与时间；保存后原始记录不可直接修改。", style = MaterialTheme.typography.bodyMedium)
+            Text(if (candidate == null) "记录真实交易金额与时间；保存后原始记录不可直接修改。" else "请核对金额、商户和支付方式后保存。", style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(recordType == "EXPENSE", { recordType = "EXPENSE" }, { Text("支出") })
                 FilterChip(recordType == "INCOME", { recordType = "INCOME" }, { Text("收入") })

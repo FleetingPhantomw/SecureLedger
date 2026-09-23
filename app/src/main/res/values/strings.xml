@@ -1,3 +1,5 @@
 <resources>
+    <string name="payment_accessibility_service_label">SecureLedger 消费识别</string>
+    <string name="payment_accessibility_service_description">仅在你选择的支付应用中读取可访问页面文字，识别疑似已完成付款并提醒你确认记账；不会点击支付按钮或保存完整页面。</string>
     <string name="app_name">SecureLedger</string>
 </resources>

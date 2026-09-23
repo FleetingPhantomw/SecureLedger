@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.secureledger.core.crypto.HashManager
 import com.secureledger.core.crypto.KeyManager
 import com.secureledger.data.entity.BankCardEntity
+import com.secureledger.integration.accessibility.AccessibilityPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -46,6 +47,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(
     identity: KeyManager.UserIdentity,
+    accessibilityPreferences: AccessibilityPreferences,
     onBack: () -> Unit,
     onLock: () -> Unit,
     onCreateBackup: (CharArray, (Result<ByteArray>) -> Unit) -> Unit,
@@ -102,6 +104,7 @@ fun SettingsScreen(
                     }
                 }
             }
+            RecognitionSettingsSection(accessibilityPreferences)
             Text("银行卡", style = MaterialTheme.typography.titleMedium)
             Text("只保存银行名称、别名和后四位，不保存完整卡号。历史账目保留保存时的显示快照。", style = MaterialTheme.typography.bodySmall)
             bankCards.forEach { card ->

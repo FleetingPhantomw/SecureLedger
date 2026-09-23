@@ -50,4 +50,12 @@
 - Switched to OpenCV's official Android AAR after the sample package failed to load on the API 35 x86_64 emulator.
 - Verified Chinese payment text, amount, bounding boxes, and existing device tests on the API 35 emulator. Model provenance and licenses are recorded in `ppocr-sdk/README.md` and `THIRD_PARTY_LICENSES.md`.
 
+### Automatic payment recognition
+
+- Added an opt-in Android accessibility service limited to user-selected apps and payment-related window events.
+- Added editable recognition rules with positive/negative keywords, field patterns, priority, and cooldown; the rule engine ranks actual-payment amounts above unrelated prices.
+- Added bounded text extraction that excludes password and input fields, plus in-memory duplicate suppression without saving third-party screen text.
+- Added a foreground confirmation sheet and background notification or small timed accessibility overlay. Every candidate opens an editable record review; saving still requires explicit confirmation.
+- Added privacy controls and system-service disclosure in Settings, four JVM rule tests, and two Android integration tests.
+
 Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.
