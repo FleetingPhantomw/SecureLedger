@@ -36,6 +36,8 @@ import com.secureledger.data.entity.ImportedTransactionEntity
 import com.secureledger.core.settlement.Balance
 import com.secureledger.core.protocol.SecureSyncCodec
 import com.secureledger.core.protocol.SecureSyncPackage
+import com.secureledger.core.protocol.QrFrameAssembler
+import com.secureledger.core.protocol.QrSyncFrames
 import androidx.camera.lifecycle.ProcessCameraProvider
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -267,6 +269,14 @@ class SecureLedgerDeviceTest {
         val matrix = QRCodeWriter().encode(encoded, BarcodeFormat.QR_CODE, 400, 400)
         assertTrue(matrix.width == 400 && matrix.height == 400)
         assertTrue(SecureSyncCodec.decode(encoded).isSignatureValid())
+
+        val largePayload = "SL1:" + "Abc123-_".repeat(400)
+        val frames = QrSyncFrames.encode(largePayload)
+        val assembler = QrFrameAssembler()
+        frames.forEach { frame ->
+            assertTrue(QRCodeWriter().encode(frame, BarcodeFormat.QR_CODE, 900, 900).width == 900)
+        }
+        assertTrue(frames.map(assembler::accept).last().completePackage == largePayload)
 
         val scanIntent = ScanContract().createIntent(
             context,

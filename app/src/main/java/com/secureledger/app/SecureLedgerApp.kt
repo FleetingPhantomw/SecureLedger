@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -91,6 +90,9 @@ import com.secureledger.feature.ocr.OcrImportScreen
 import com.secureledger.integration.ocr.OcrEngine
 import com.secureledger.core.ocr.OrderParser
 import com.secureledger.core.ocr.RecognizedOrder
+import com.secureledger.core.protocol.QrFrameAssembler
+import com.secureledger.core.protocol.QrSyncFrames
+import com.secureledger.core.protocol.SecureSyncCodec
 import com.secureledger.data.repository.InvitationRepository
 import com.secureledger.feature.project.ProjectAccessScreen
 import com.secureledger.data.entity.ProjectMemberEntity
@@ -432,7 +434,7 @@ private fun LedgerShell(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(when (tab) { Tab.HOME -> "总览"; Tab.LEDGER -> "个人账本"; Tab.PROJECTS -> "多人项目"; Tab.SYNC -> "同步中心"; Tab.SECURITY -> "安全中心" }) },
+                title = { Text(when (tab) { Tab.HOME -> "总览"; Tab.LEDGER -> "个人账本"; Tab.PROJECTS -> "多人项目"; Tab.SYNC -> "同步账本"; Tab.SECURITY -> "安全中心" }) },
                 actions = { IconButton(onClick = { addVisible = true }) { Icon(Icons.Default.Add, "新增账目") } }
             )
         },
@@ -600,15 +602,20 @@ private fun SyncScreen(
     onExport: (String, (Result<String>) -> Unit) -> Unit,
     onImport: (String, (SyncImportResult) -> Unit) -> Unit
 ) {
-    val context = LocalContext.current
     var exported by remember { mutableStateOf<String?>(null) }
-    var manualInput by remember { mutableStateOf("") }
+    var selectedProjectId by remember { mutableStateOf<String?>(null) }
+    var frameIndex by remember { mutableStateOf(0) }
+    val assembler = remember { QrFrameAssembler() }
+    var assemblyProgress by remember { mutableStateOf<String?>(null) }
     var operationError by remember { mutableStateOf<String?>(null) }
     var importResult by remember { mutableStateOf<SyncImportResult?>(null) }
+    LaunchedEffect(projects) {
+        if (projects.none { it.projectId == selectedProjectId }) selectedProjectId = projects.firstOrNull()?.projectId
+    }
 
     fun submitImport(value: String) {
         if (value.isBlank()) {
-            operationError = "同步包不能为空"
+            operationError = "二维码内容为空"
             return
         }
         operationError = null
@@ -617,60 +624,72 @@ private fun SyncScreen(
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { scanResult ->
         scanResult.contents?.let { contents ->
-            manualInput = contents
-            submitImport(contents)
+            if (QrSyncFrames.isFrame(contents)) {
+                runCatching { assembler.accept(contents) }
+                    .onSuccess { progress ->
+                        operationError = null
+                        assemblyProgress = "已扫描 ${progress.received}/${progress.total} 张"
+                        progress.completePackage?.let { complete ->
+                            assembler.reset()
+                            assemblyProgress = null
+                            submitImport(complete)
+                        }
+                    }.onFailure { operationError = it.message ?: "二维码分片无效" }
+            } else if (contents.startsWith(SecureSyncCodec.PREFIX)) {
+                assembler.reset()
+                assemblyProgress = null
+                submitImport(contents)
+            } else operationError = "不是 SecureLedger 同步二维码"
         }
     }
-    val qrBitmap = remember(exported) { exported?.let(::createQrBitmap) }
+    val frameResult = remember(exported) { exported?.let { runCatching { QrSyncFrames.encode(it) } } }
+    val frames = frameResult?.getOrNull().orEmpty()
+    val qrBitmap = remember(frames, frameIndex) { frames.getOrNull(frameIndex)?.let(::createQrBitmap) }
 
     Column(
         Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Sync, "同步中心", tint = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Default.Sync, "同步账本", tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
-            Text("安全同步中心", style = MaterialTheme.typography.headlineSmall)
+            Text("同步账本", style = MaterialTheme.typography.headlineSmall)
         }
         Text("通过二维码与其他设备交换账目。收到的数据通过安全验证后才会写入。")
-        projects.forEach { project ->
-            Card(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(project.name, style = MaterialTheme.typography.titleMedium)
-                        Text(project.projectId, style = MaterialTheme.typography.bodySmall)
-                    }
-                    Button(onClick = {
-                        onExport(project.projectId) { result ->
-                            result.onSuccess { exported = it; operationError = null }
-                                .onFailure { operationError = it.message ?: "同步包生成失败" }
-                        }
-                    }) { Text("生成二维码") }
-                }
+        if (projects.size > 1) {
+            Text("选择账本", style = MaterialTheme.typography.labelLarge)
+            projects.forEach { project ->
+                FilterChip(selectedProjectId == project.projectId, { selectedProjectId = project.projectId; exported = null }, { Text(project.name) })
             }
         }
-        exported?.let { packageText ->
+        Button(onClick = {
+            selectedProjectId?.let { projectId ->
+                onExport(projectId) { result ->
+                    result.onSuccess { exported = it; frameIndex = 0; operationError = null }
+                        .onFailure { operationError = it.message ?: "二维码生成失败" }
+                }
+            }
+        }, enabled = selectedProjectId != null, modifier = Modifier.fillMaxWidth()) { Text("生成同步二维码") }
+        frameResult?.exceptionOrNull()?.let { Text(it.message ?: "二维码数据过大", color = MaterialTheme.colorScheme.error) }
+        if (frames.isNotEmpty()) {
             Card(Modifier.fillMaxWidth()) {
                 Column(
                     Modifier.fillMaxWidth().padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text("待同步数据", style = MaterialTheme.typography.titleMedium)
+                    Text(if (frames.size == 1) "同步二维码" else "第 ${frameIndex + 1}/${frames.size} 张", style = MaterialTheme.typography.titleMedium)
                     if (qrBitmap != null) {
                         Image(qrBitmap.asImageBitmap(), "SecureLedger 同步二维码", Modifier.size(260.dp))
                     } else {
-                        Text("数据超过单个二维码容量，请使用复制同步包。", color = MaterialTheme.colorScheme.error)
+                        Text("二维码生成失败，请重新生成同步数据。", color = MaterialTheme.colorScheme.error)
                     }
-                    Button(onClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("SecureLedger Sync", packageText))
-                        Toast.makeText(context, "同步包已复制", Toast.LENGTH_SHORT).show()
-                    }, modifier = Modifier.fillMaxWidth()) { Text("复制同步数据") }
+                    if (frames.size > 1) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            OutlinedButton(onClick = { frameIndex-- }, enabled = frameIndex > 0) { Text("上一张") }
+                            Button(onClick = { frameIndex++ }, enabled = frameIndex < frames.lastIndex) { Text("下一张") }
+                        }
+                    }
                 }
             }
         }
@@ -688,17 +707,9 @@ private fun SyncScreen(
         ) {
             Icon(Icons.Default.QrCodeScanner, "扫码导入")
             Spacer(Modifier.width(8.dp))
-            Text("扫码导入")
+            Text("扫描二维码")
         }
-        OutlinedTextField(
-            value = manualInput,
-            onValueChange = { manualInput = it },
-            label = { Text("粘贴同步数据") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 3,
-            maxLines = 6
-        )
-        Button(onClick = { submitImport(manualInput) }, modifier = Modifier.fillMaxWidth()) { Text("验证并导入") }
+        assemblyProgress?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
         operationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         importResult?.let { result ->
             Card(Modifier.fillMaxWidth()) {

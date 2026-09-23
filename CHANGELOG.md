@@ -69,4 +69,9 @@
 - Removed LAN/P2P and relay UI, service adapters, network permissions, cleartext allowance, and NanoHTTPD dependency.
 - Kept the signed sync package, replay protection, record verification, and QR import/export path unchanged at this stage.
 
+### QR sync
+
+- Reduced the sync screen to generating and scanning QR codes, with a project selector where needed.
+- Added bounded, checksummed QR frames for packages too large for one code. Scans may arrive out of order; the app only submits a complete package for the existing signature, hash-chain, Merkle, and replay checks.
+
 Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.
