@@ -81,4 +81,11 @@
 - Added confirmation before leaving edited record, correction, or project-creation forms; dialog Back dismisses the confirmation without dropping the draft.
 - Verified the OCR → main route, edited-form Back and top-bar confirmation, dialog Back, and root → launcher behavior on an isolated API 35 emulator user. The existing emulator owner's ledger was not modified.
 
-Further edge-to-edge, design-system, UI, test, and release changes will be recorded here when their implementation and tests are complete.
+### Edge-to-edge
+
+- Enabled edge-to-edge window rendering on older Android releases as well as API 35, and configured IME inset delivery with `adjustResize`.
+- Removed fixed system-bar colors; Material 3 bars and Scaffold padding now determine safe content placement, while the unlock screen handles safe-drawing insets directly.
+- Added consumed Scaffold insets plus animated IME padding to text-entry screens, including record entry, settlement, OCR confirmation, invitations, and settings.
+- Verified on API 35 that the home bottom bar clears system navigation and that the bottom of a long record form remains reachable while the software keyboard is visible.
+
+Further design-system, UI, test, and release changes will be recorded here when their implementation and tests are complete.
