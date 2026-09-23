@@ -74,4 +74,11 @@
 - Reduced the sync screen to generating and scanning QR codes, with a project selector where needed.
 - Added bounded, checksummed QR frames for packages too large for one code. Scans may arrive out of order; the app only submits a complete package for the existing signature, hash-chain, Merkle, and replay checks.
 
-Further functional, database, OCR, accessibility, navigation and UI changes will be recorded here when their implementation and tests are complete.
+### Navigation and Back
+
+- Replaced conditional full-screen switching with a Navigation Compose back stack. Record and project destinations use stable IDs, so a restored destination can resolve current data rather than hold a stale object.
+- Enabled modern system Back dispatch for predictive Back on supported Android versions. Top-bar Back and system Back now target the same navigation stack; the main tabs remain a single root destination.
+- Added confirmation before leaving edited record, correction, or project-creation forms; dialog Back dismisses the confirmation without dropping the draft.
+- Verified the OCR → main route, edited-form Back and top-bar confirmation, dialog Back, and root → launcher behavior on an isolated API 35 emulator user. The existing emulator owner's ledger was not modified.
+
+Further edge-to-edge, design-system, UI, test, and release changes will be recorded here when their implementation and tests are complete.

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,6 +58,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -69,6 +72,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.compose.BackHandler
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
 import com.secureledger.SecureLedgerApplication
 import com.secureledger.core.crypto.KeyManager
 import com.secureledger.core.ledger.CorrectionRequest
@@ -123,6 +131,26 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 
 private enum class Tab { HOME, LEDGER, PROJECTS, SYNC, SECURITY }
+
+private object LedgerRoute {
+    const val MAIN = "main"
+    const val SETTINGS = "settings"
+    const val ACCESS_JOIN = "access/join"
+    const val ACCESS_PROJECT = "access/project/{projectId}"
+    const val OCR = "ocr"
+    const val RECONCILIATION = "reconciliation"
+    const val SETTLEMENT = "settlement/{projectId}"
+    const val ADD = "add"
+    const val REVIEW = "review"
+    const val DETAIL = "detail/{recordId}"
+    const val CORRECTION = "correction/{recordId}"
+    const val CREATE_PROJECT = "create-project"
+
+    fun accessProject(id: String) = "access/project/${Uri.encode(id)}"
+    fun settlement(id: String) = "settlement/${Uri.encode(id)}"
+    fun detail(id: String) = "detail/${Uri.encode(id)}"
+    fun correction(id: String) = "correction/${Uri.encode(id)}"
+}
 
 @Composable
 fun SecureLedgerApp(
@@ -286,22 +314,19 @@ private fun LedgerShell(
     onLock: () -> Unit
 ) {
     val context = LocalContext.current
-    var tab by remember { mutableStateOf(Tab.HOME) }
-    var addVisible by remember { mutableStateOf(false) }
+    val navController = rememberNavController()
+    val currentEntry by navController.currentBackStackEntryAsState()
+    var dirtyRoute by remember { mutableStateOf<String?>(null) }
+    var discardVisible by remember { mutableStateOf(false) }
+    val hasUnsavedChanges = dirtyRoute != null && dirtyRoute == currentEntry?.destination?.route
+    var tab by rememberSaveable { mutableStateOf(Tab.HOME) }
     var reviewingCandidate by remember { mutableStateOf<TransactionCandidate?>(null) }
     val pendingCandidate by CandidateInbox.pending.collectAsState()
-    var correctionTarget by remember { mutableStateOf<DecryptedRecord?>(null) }
-    var selectedRecord by remember { mutableStateOf<DecryptedRecord?>(null) }
-    var projectCreateVisible by remember { mutableStateOf(false) }
-    var settlementProject by remember { mutableStateOf<ProjectEntity?>(null) }
     var latestSettlement by remember { mutableStateOf<SettlementProof?>(null) }
-    var reconciliationVisible by remember { mutableStateOf(false) }
     var importMessage by remember { mutableStateOf<String?>(null) }
-    var ocrVisible by remember { mutableStateOf(false) }
-    var projectAccessVisible by remember { mutableStateOf(false) }
-    var settingsVisible by remember { mutableStateOf(false) }
-    var accessProject by remember { mutableStateOf<ProjectEntity?>(null) }
-    LaunchedEffect(sharedImageUri) { if (sharedImageUri != null) ocrVisible = true }
+    LaunchedEffect(sharedImageUri) {
+        if (sharedImageUri != null) navController.navigate(LedgerRoute.OCR) { launchSingleTop = true }
+    }
     val viewModel = remember(identity.userId) {
         LedgerViewModel(
             repository, projectRepository, settlementRepository, syncRepository, importRepository,
@@ -316,175 +341,135 @@ private fun LedgerShell(
     val projectMembers by viewModel.projectMembers.collectAsStateCompat()
     val bankCards by viewModel.bankCards.collectAsStateCompat()
     val joinRequest = remember(identity.userId) { viewModel.createJoinRequest() }
-    if (settingsVisible) {
-        SettingsScreen(
-            identity = identity,
-            accessibilityPreferences = (context.applicationContext as SecureLedgerApplication).accessibilityPreferences,
-            onBack = { settingsVisible = false },
-            onLock = {
-                onSharedImageConsumed()
-                settingsVisible = false
-                onLock()
-            },
-            onCreateBackup = viewModel::createBackup,
-            bankCards = bankCards,
-            onSaveBankCard = viewModel::saveBankCard,
-            onSetBankCardEnabled = viewModel::setBankCardEnabled,
-            onDeleteBankCard = viewModel::deleteBankCard
-        )
-        return
-    }
-    if (projectAccessVisible) {
-        ProjectAccessScreen(
-            project = accessProject,
-            members = projectMembers,
-            joinRequest = joinRequest,
-            onBack = { projectAccessVisible = false; accessProject = null },
-            onLoadMembers = viewModel::loadMembers,
-            onIssueInvitation = viewModel::issueInvitation,
-            onAcceptInvitation = viewModel::acceptInvitation
-        )
-        return
-    }
-    if (ocrVisible) {
-        OcrImportScreen(
-            initialUri = sharedImageUri,
-            onInitialUriConsumed = onSharedImageConsumed,
-            onBack = { ocrVisible = false },
-            onRecognize = viewModel::recognizeOrder,
-            onParseText = viewModel::parseOrderText,
-            onSave = { payload -> viewModel.add(payload) { ocrVisible = false } }
-        )
-        return
-    }
-    if (reconciliationVisible) {
-        ReconciliationScreen(
-            entries = importedTransactions,
-            operationMessage = importMessage,
-            onBack = { reconciliationVisible = false },
-            onSupplement = { id ->
-                viewModel.supplementImport(id) { result ->
-                    importMessage = result.fold({ "补记成功" }, { it.message ?: "补记失败" })
-                }
-            },
-            onIgnore = { id -> viewModel.ignoreImport(id) }
-        )
-        return
-    }
-    settlementProject?.let { project ->
-        SettlementScreen(
-            project = project,
-            identity = identity,
-            members = projectMembers,
-            previousProof = latestSettlement,
-            onBack = { settlementProject = null },
-            onCreate = { balances, callback -> viewModel.createSettlement(project.projectId, balances, callback) },
-            onEncode = viewModel::encodeSettlement,
-            onCoSign = viewModel::coSignSettlement,
-            onMerge = viewModel::mergeSettlementSignatures
-        )
-        return
-    }
-    if (addVisible) {
-        AddRecordScreen(
-            projects = projects,
-            bankCards = bankCards.filter(BankCardEntity::enabled),
-            onBack = { addVisible = false },
-            onSave = { payload, projectId -> viewModel.add(payload, projectId) { addVisible = false } }
-        )
-        return
-    }
-    reviewingCandidate?.let { candidate ->
-        AddRecordScreen(
-            projects = projects,
-            bankCards = bankCards.filter(BankCardEntity::enabled),
-            candidate = candidate,
-            onBack = { reviewingCandidate = null },
-            onSave = { payload, projectId -> viewModel.add(payload, projectId) { reviewingCandidate = null } }
-        )
-        return
-    }
-    selectedRecord?.let { record ->
-        RecordDetailScreen(record, onBack = { selectedRecord = null }, onCorrect = {
-            selectedRecord = null
-            correctionTarget = record
-        })
-        return
-    }
-    correctionTarget?.let { target ->
-        CorrectionScreen(
-            target = target,
-            onBack = { correctionTarget = null },
-            onSave = { request, callback ->
-                viewModel.correct(request) { result ->
-                    callback(result)
-                    if (result.isSuccess) correctionTarget = null
-                }
-            }
-        )
-        return
-    }
-    if (projectCreateVisible) {
-        CreateProjectScreen(
-            onBack = { projectCreateVisible = false },
-            onSave = { name -> viewModel.createProject(name) { projectCreateVisible = false } }
-        )
-        return
-    }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(when (tab) { Tab.HOME -> "总览"; Tab.LEDGER -> "个人账本"; Tab.PROJECTS -> "多人项目"; Tab.SYNC -> "同步账本"; Tab.SECURITY -> "安全中心" }) },
-                actions = { IconButton(onClick = { addVisible = true }) { Icon(Icons.Default.Add, "新增账目") } }
-            )
-        },
-        floatingActionButton = {
-            if (tab == Tab.HOME || tab == Tab.LEDGER) FloatingActionButton(onClick = { addVisible = true }) {
-                Icon(Icons.Default.Add, "新增账目")
-            }
-        },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(tab == Tab.HOME, { tab = Tab.HOME }, { Icon(Icons.Default.Home, "首页") }, label = { Text("首页") })
-                NavigationBarItem(tab == Tab.LEDGER, { tab = Tab.LEDGER }, { Icon(Icons.AutoMirrored.Filled.MenuBook, "账本") }, label = { Text("账本") })
-                NavigationBarItem(tab == Tab.PROJECTS, { tab = Tab.PROJECTS }, { Icon(Icons.Default.Group, "项目") }, label = { Text("项目") })
-                NavigationBarItem(tab == Tab.SYNC, { tab = Tab.SYNC }, { Icon(Icons.Default.Sync, "同步") }, label = { Text("同步") })
-                NavigationBarItem(tab == Tab.SECURITY, { tab = Tab.SECURITY }, { Icon(Icons.Default.Security, "安全") }, label = { Text("安全") })
-            }
-        }
-    ) { padding ->
-        when (tab) {
-            Tab.HOME -> HomeScreen(
-                padding, records, report,
-                hasLegacyImports = importedTransactions.isNotEmpty(),
-                onOpenReconciliation = { reconciliationVisible = true },
-                onOpenOcr = { ocrVisible = true },
-                onOpenSettings = { settingsVisible = true }
-            )
-            Tab.LEDGER -> LedgerScreen(
-                padding, records,
-                onOpen = { selectedRecord = it },
-                onCorrect = { correctionTarget = it }
-            )
-            Tab.PROJECTS -> ProjectScreen(
-                padding = padding,
+    NavHost(navController = navController, startDestination = LedgerRoute.MAIN) {
+        composable(LedgerRoute.MAIN) {
+            LedgerMainTabs(
+                tab = tab,
+                onTabChange = { tab = it },
+                records = records,
                 projects = projects,
-                onCreate = { projectCreateVisible = true },
-                onJoin = { accessProject = null; projectAccessVisible = true },
-                onManage = { project -> accessProject = project; projectAccessVisible = true },
-                onSettle = { project ->
-                    settlementProject = project
+                importedTransactions = importedTransactions,
+                report = report,
+                identity = identity,
+                onAdd = { navController.navigate(LedgerRoute.ADD) },
+                onOpenReconciliation = { navController.navigate(LedgerRoute.RECONCILIATION) },
+                onOpenOcr = { navController.navigate(LedgerRoute.OCR) },
+                onOpenSettings = { navController.navigate(LedgerRoute.SETTINGS) },
+                onOpenRecord = { navController.navigate(LedgerRoute.detail(it.secure.recordId)) },
+                onCorrectRecord = { navController.navigate(LedgerRoute.correction(it.secure.recordId)) },
+                onCreateProject = { navController.navigate(LedgerRoute.CREATE_PROJECT) },
+                onJoinProject = { navController.navigate(LedgerRoute.ACCESS_JOIN) },
+                onManageProject = { navController.navigate(LedgerRoute.accessProject(it.projectId)) },
+                onSettleProject = { project ->
+                    latestSettlement = null
                     viewModel.loadMembers(project.projectId)
                     viewModel.loadLatestSettlement(project.projectId) { latestSettlement = it }
-                }
-            )
-            Tab.SYNC -> SyncScreen(
-                padding = padding,
-                projects = projects,
+                    navController.navigate(LedgerRoute.settlement(project.projectId))
+                },
                 onExport = viewModel::exportSyncPackage,
-                onImport = viewModel::importSyncPackage
+                onImport = viewModel::importSyncPackage,
+                onVerify = viewModel::verify
             )
-            Tab.SECURITY -> SecurityScreen(padding, identity, report) { viewModel.verify() }
+        }
+        composable(LedgerRoute.SETTINGS) {
+            SettingsScreen(
+                identity = identity,
+                accessibilityPreferences = (context.applicationContext as SecureLedgerApplication).accessibilityPreferences,
+                onBack = navController::popBackStack,
+                onLock = { onSharedImageConsumed(); onLock() },
+                onCreateBackup = viewModel::createBackup,
+                bankCards = bankCards,
+                onSaveBankCard = viewModel::saveBankCard,
+                onSetBankCardEnabled = viewModel::setBankCardEnabled,
+                onDeleteBankCard = viewModel::deleteBankCard
+            )
+        }
+        composable(LedgerRoute.ACCESS_JOIN) {
+            ProjectAccessScreen(null, projectMembers, joinRequest, navController::popBackStack,
+                viewModel::loadMembers, viewModel::issueInvitation, viewModel::acceptInvitation)
+        }
+        composable(LedgerRoute.ACCESS_PROJECT) { entry ->
+            val project = projects.firstOrNull { it.projectId == entry.arguments?.getString("projectId") }
+            if (project != null) {
+                ProjectAccessScreen(project, projectMembers, joinRequest, navController::popBackStack,
+                    viewModel::loadMembers, viewModel::issueInvitation, viewModel::acceptInvitation)
+            }
+        }
+        composable(LedgerRoute.OCR) {
+            OcrImportScreen(
+                initialUri = sharedImageUri,
+                onInitialUriConsumed = onSharedImageConsumed,
+                onBack = navController::popBackStack,
+                onRecognize = viewModel::recognizeOrder,
+                onParseText = viewModel::parseOrderText,
+                onSave = { payload -> viewModel.add(payload) { navController.popBackStack() } }
+            )
+        }
+        composable(LedgerRoute.RECONCILIATION) {
+            ReconciliationScreen(importedTransactions, importMessage, navController::popBackStack,
+                onSupplement = { id ->
+                    viewModel.supplementImport(id) { result ->
+                        importMessage = result.fold({ "补记成功" }, { it.message ?: "补记失败" })
+                    }
+                },
+                onIgnore = viewModel::ignoreImport)
+        }
+        composable(LedgerRoute.SETTLEMENT) { entry ->
+            val project = projects.firstOrNull { it.projectId == entry.arguments?.getString("projectId") }
+            if (project != null) {
+                SettlementScreen(project, identity, projectMembers, latestSettlement,
+                    onBack = navController::popBackStack,
+                    onCreate = { balances, callback -> viewModel.createSettlement(project.projectId, balances, callback) },
+                    onEncode = viewModel::encodeSettlement,
+                    onCoSign = viewModel::coSignSettlement,
+                    onMerge = viewModel::mergeSettlementSignatures)
+            }
+        }
+        composable(LedgerRoute.ADD) {
+            AddRecordScreen(projects, bankCards.filter(BankCardEntity::enabled),
+                onBack = { if (hasUnsavedChanges) discardVisible = true else navController.popBackStack() },
+                onDirtyChange = { dirtyRoute = if (it) LedgerRoute.ADD else null },
+                onSave = { payload, projectId -> viewModel.add(payload, projectId) { navController.popBackStack() } })
+        }
+        composable(LedgerRoute.REVIEW) {
+            LaunchedEffect(reviewingCandidate) {
+                if (reviewingCandidate == null) navController.popBackStack()
+            }
+            reviewingCandidate?.let { candidate ->
+                AddRecordScreen(projects, bankCards.filter(BankCardEntity::enabled), candidate,
+                    onBack = { if (hasUnsavedChanges) discardVisible = true else navController.popBackStack() },
+                    onDirtyChange = { dirtyRoute = if (it) LedgerRoute.REVIEW else null },
+                    onSave = { payload, projectId ->
+                        viewModel.add(payload, projectId) { navController.popBackStack(); reviewingCandidate = null }
+                    })
+            }
+        }
+        composable(LedgerRoute.DETAIL) { entry ->
+            val id = entry.arguments?.getString("recordId")
+            records.firstOrNull { it.secure.recordId == id }?.let { record ->
+                RecordDetailScreen(record, onBack = navController::popBackStack,
+                    onCorrect = { navController.navigate(LedgerRoute.correction(record.secure.recordId)) })
+            }
+        }
+        composable(LedgerRoute.CORRECTION) { entry ->
+            val id = entry.arguments?.getString("recordId")
+            records.firstOrNull { it.secure.recordId == id }?.let { target ->
+                CorrectionScreen(target,
+                    onBack = { if (hasUnsavedChanges) discardVisible = true else navController.popBackStack() },
+                    onDirtyChange = { dirtyRoute = if (it) LedgerRoute.CORRECTION else null },
+                    onSave = { request, callback ->
+                        viewModel.correct(request) { result ->
+                            callback(result)
+                            if (result.isSuccess) navController.popBackStack()
+                        }
+                    })
+            }
+        }
+        composable(LedgerRoute.CREATE_PROJECT) {
+            CreateProjectScreen(
+                onBack = { if (hasUnsavedChanges) discardVisible = true else navController.popBackStack() },
+                onDirtyChange = { dirtyRoute = if (it) LedgerRoute.CREATE_PROJECT else null },
+                onSave = { name -> viewModel.createProject(name) { navController.popBackStack() } })
         }
     }
     pendingCandidate?.let { candidate ->
@@ -495,9 +480,107 @@ private fun LedgerShell(
                 Text(listOf(candidate.merchant, candidate.paymentChannel).filter(String::isNotBlank).joinToString(" · "))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedButton(onClick = CandidateInbox::dismiss, modifier = Modifier.weight(1f)) { Text("忽略") }
-                    Button(onClick = { reviewingCandidate = candidate; CandidateInbox.dismiss() }, modifier = Modifier.weight(1f)) { Text("记一笔") }
+                    Button(onClick = {
+                        reviewingCandidate = candidate
+                        CandidateInbox.dismiss()
+                        navController.navigate(LedgerRoute.REVIEW)
+                    }, modifier = Modifier.weight(1f)) { Text("记一笔") }
                 }
             }
+        }
+    }
+    BackHandler(enabled = hasUnsavedChanges && pendingCandidate == null && !discardVisible) {
+        discardVisible = true
+    }
+    if (discardVisible) {
+        AlertDialog(
+            onDismissRequest = { discardVisible = false },
+            title = { Text("放弃未保存的修改？") },
+            text = { Text("离开后，本页修改不会保留。") },
+            confirmButton = { TextButton(onClick = {
+                discardVisible = false
+                dirtyRoute = null
+                navController.popBackStack()
+            }) { Text("放弃修改") } },
+            dismissButton = { TextButton(onClick = { discardVisible = false }) { Text("继续编辑") } }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LedgerMainTabs(
+    tab: Tab,
+    onTabChange: (Tab) -> Unit,
+    records: List<DecryptedRecord>,
+    projects: List<ProjectEntity>,
+    importedTransactions: List<ImportedTransactionView>,
+    report: IntegrityReport?,
+    identity: KeyManager.UserIdentity,
+    onAdd: () -> Unit,
+    onOpenReconciliation: () -> Unit,
+    onOpenOcr: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenRecord: (DecryptedRecord) -> Unit,
+    onCorrectRecord: (DecryptedRecord) -> Unit,
+    onCreateProject: () -> Unit,
+    onJoinProject: () -> Unit,
+    onManageProject: (ProjectEntity) -> Unit,
+    onSettleProject: (ProjectEntity) -> Unit,
+    onExport: (String, (Result<String>) -> Unit) -> Unit,
+    onImport: (String, (SyncImportResult) -> Unit) -> Unit,
+    onVerify: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(when (tab) { Tab.HOME -> "总览"; Tab.LEDGER -> "个人账本"; Tab.PROJECTS -> "多人项目"; Tab.SYNC -> "同步账本"; Tab.SECURITY -> "安全中心" }) },
+                actions = { IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "新增账目") } }
+            )
+        },
+        floatingActionButton = {
+            if (tab == Tab.HOME || tab == Tab.LEDGER) FloatingActionButton(onClick = onAdd) {
+                Icon(Icons.Default.Add, "新增账目")
+            }
+        },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(tab == Tab.HOME, { onTabChange(Tab.HOME) }, { Icon(Icons.Default.Home, "首页") }, label = { Text("首页") })
+                NavigationBarItem(tab == Tab.LEDGER, { onTabChange(Tab.LEDGER) }, { Icon(Icons.AutoMirrored.Filled.MenuBook, "账本") }, label = { Text("账本") })
+                NavigationBarItem(tab == Tab.PROJECTS, { onTabChange(Tab.PROJECTS) }, { Icon(Icons.Default.Group, "项目") }, label = { Text("项目") })
+                NavigationBarItem(tab == Tab.SYNC, { onTabChange(Tab.SYNC) }, { Icon(Icons.Default.Sync, "同步") }, label = { Text("同步") })
+                NavigationBarItem(tab == Tab.SECURITY, { onTabChange(Tab.SECURITY) }, { Icon(Icons.Default.Security, "安全") }, label = { Text("安全") })
+            }
+        }
+    ) { padding ->
+        when (tab) {
+            Tab.HOME -> HomeScreen(
+                padding, records, report,
+                hasLegacyImports = importedTransactions.isNotEmpty(),
+                onOpenReconciliation = onOpenReconciliation,
+                onOpenOcr = onOpenOcr,
+                onOpenSettings = onOpenSettings
+            )
+            Tab.LEDGER -> LedgerScreen(
+                padding, records,
+                onOpen = onOpenRecord,
+                onCorrect = onCorrectRecord
+            )
+            Tab.PROJECTS -> ProjectScreen(
+                padding = padding,
+                projects = projects,
+                onCreate = onCreateProject,
+                onJoin = onJoinProject,
+                onManage = onManageProject,
+                onSettle = onSettleProject
+            )
+            Tab.SYNC -> SyncScreen(
+                padding = padding,
+                projects = projects,
+                onExport = onExport,
+                onImport = onImport
+            )
+            Tab.SECURITY -> SecurityScreen(padding, identity, report, onVerify)
         }
     }
 }
@@ -912,9 +995,10 @@ private fun formatCents(cents: Long): String =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CreateProjectScreen(onBack: () -> Unit, onSave: (String) -> Unit) {
+private fun CreateProjectScreen(onBack: () -> Unit, onDirtyChange: (Boolean) -> Unit, onSave: (String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    SideEffect { onDirtyChange(name.isNotBlank()) }
     Scaffold(topBar = { TopAppBar(title = { Text("新建多人项目") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("创建后，你可以邀请成员共同记账和结算。")
@@ -954,6 +1038,7 @@ private fun AddRecordScreen(
     bankCards: List<BankCardEntity>,
     candidate: TransactionCandidate? = null,
     onBack: () -> Unit,
+    onDirtyChange: (Boolean) -> Unit,
     onSave: (PlainRecordPayload, String) -> Unit
 ) {
     val context = LocalContext.current
@@ -966,9 +1051,17 @@ private fun AddRecordScreen(
     var paymentChannel by remember(candidate) { mutableStateOf(candidate?.paymentChannel?.let(PaymentChannelCode::fromLegacy)?.takeIf { it != PaymentChannelCode.LEGACY_OTHER } ?: PaymentChannelCode.ALIPAY) }
     var selectedBankCardId by remember { mutableStateOf<String?>(null) }
     var tags by remember(candidate) { mutableStateOf(if (candidate == null) "" else "auto-detected,user-confirmed") }
-    var transactionTime by remember(candidate) { mutableStateOf(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(candidate?.transactionTime ?: System.currentTimeMillis()))) }
+    val initialTime = remember(candidate) { DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(candidate?.transactionTime ?: System.currentTimeMillis())) }
+    var transactionTime by remember(candidate) { mutableStateOf(initialTime) }
     var vouchers by remember { mutableStateOf<List<String>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
+    val changed = recordType != "EXPENSE" || projectId != ProjectRepository.PERSONAL_PROJECT_ID ||
+        amount != candidate?.amountCents?.let(::formatCents).orEmpty() || merchant != candidate?.merchant.orEmpty() ||
+        category != (if (candidate == null) ExpenseCategoryCode.FOOD_TOBACCO_ALCOHOL else ExpenseCategoryCode.fromLegacy(candidate.merchant)) ||
+        note.isNotBlank() || paymentChannel != (candidate?.paymentChannel?.let(PaymentChannelCode::fromLegacy)?.takeIf { it != PaymentChannelCode.LEGACY_OTHER } ?: PaymentChannelCode.ALIPAY) ||
+        selectedBankCardId != null || tags != (if (candidate == null) "" else "auto-detected,user-confirmed") ||
+        transactionTime != initialTime || vouchers.isNotEmpty()
+    SideEffect { onDirtyChange(changed) }
     val voucherPicker = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.take(5).forEach { uri -> runCatching { context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
         vouchers = uris.take(5).map(Uri::toString)
@@ -1096,12 +1189,14 @@ private fun RecordDetailScreen(record: DecryptedRecord, onBack: () -> Unit, onCo
 private fun CorrectionScreen(
     target: DecryptedRecord,
     onBack: () -> Unit,
+    onDirtyChange: (Boolean) -> Unit,
     onSave: (CorrectionRequest, (Result<Unit>) -> Unit) -> Unit
 ) {
     val currentAmount = "${target.payload.amountCents / 100}.${(target.payload.amountCents % 100).toString().padStart(2, '0')}"
     var newAmount by remember { mutableStateOf(currentAmount) }
     var reason by remember { mutableStateOf("金额录入错误") }
     var error by remember { mutableStateOf<String?>(null) }
+    SideEffect { onDirtyChange(newAmount != currentAmount || reason != "金额录入错误") }
     Scaffold(topBar = { TopAppBar(title = { Text("追加更正记录") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }) }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("原始记录保持不变，本次修改会作为新的更正记录保存。")

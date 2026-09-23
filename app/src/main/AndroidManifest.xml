@@ -9,6 +9,7 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:label="SecureLedger"
+        android:enableOnBackInvokedCallback="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.SecureLedger">
         <activity
