@@ -11,6 +11,11 @@ import com.secureledger.core.ledger.IntegrityReport
 import com.secureledger.core.ledger.PlainRecordPayload
 import com.secureledger.core.ocr.OrderParser
 import com.secureledger.core.ocr.RecognizedOrder
+import com.secureledger.core.ocr.OcrObservation
+import com.secureledger.core.ocr.StatementCandidate
+import com.secureledger.core.ocr.StatementParser
+import com.secureledger.core.ocr.ShoppingOrderParser
+import com.secureledger.core.importer.ImportedTransaction
 import com.secureledger.core.settlement.Balance
 import com.secureledger.core.settlement.SettlementProof
 import com.secureledger.data.entity.ProjectEntity
@@ -156,8 +161,36 @@ internal class LedgerViewModel(
     }
 
     fun ignoreImport(importedId: String) = viewModelScope.launch { importRepository.ignore(importedId) }
+    fun retainImport(importedId: String) = viewModelScope.launch { importRepository.retain(importedId) }
     fun recognizeOrder(uri: Uri, callback: (Result<RecognizedOrder>) -> Unit) = viewModelScope.launch {
         callback(runCatching { orderParser.parse(ocrEngine.recognize(uri).text) })
+    }
+    fun recognizeStatement(uri: Uri, callback: (Result<List<StatementCandidate>>) -> Unit) = viewModelScope.launch {
+        callback(runCatching {
+            val lines = ocrEngine.recognize(uri).lines.map { line ->
+                OcrObservation(line.text, line.corners.map { it.x }.average().toFloat(),
+                    line.corners.map { it.y }.average().toFloat(), line.confidence)
+            }
+            StatementParser().parse(lines).also { require(it.isNotEmpty()) { "未识别到可核对的银行流水，请选择清晰的银行交易明细截图" } }
+        })
+    }
+    fun importStatement(transactions: List<ImportedTransaction>, callback: (Result<Int>) -> Unit) = viewModelScope.launch {
+        callback(runCatching { importRepository.importBatch(identity, "银行截图识别", transactions) })
+    }
+    fun recognizeShoppingOrders(uri: Uri, callback: (Result<List<RecognizedOrder>>) -> Unit) = viewModelScope.launch {
+        callback(runCatching {
+            val lines = ocrEngine.recognize(uri).lines.map { line ->
+                OcrObservation(line.text, line.corners.map { it.x }.average().toFloat(),
+                    line.corners.map { it.y }.average().toFloat(), line.confidence)
+            }
+            ShoppingOrderParser().parse(lines).also { require(it.isNotEmpty()) { "未识别到多笔已付款订单" } }
+        })
+    }
+    fun saveOcr(payload: PlainRecordPayload, callback: (Result<Unit>) -> Unit) = viewModelScope.launch {
+        callback(runCatching {
+            repository.addRecord(identity, payload)
+            refreshIntegrity()
+        })
     }
     fun parseOrderText(text: String): Result<RecognizedOrder> = runCatching { orderParser.parse(text) }
     fun verify() = viewModelScope.launch { refreshIntegrity() }

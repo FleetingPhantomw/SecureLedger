@@ -442,8 +442,13 @@ private fun LedgerShell(
                 onInitialUriConsumed = onSharedImageConsumed,
                 onBack = navController::popBackStack,
                 onRecognize = viewModel::recognizeOrder,
+                onRecognizeStatement = viewModel::recognizeStatement,
+                onRecognizeShoppingOrders = viewModel::recognizeShoppingOrders,
+                onImportStatement = viewModel::importStatement,
+                existingImports = importedTransactions,
+                onViewImports = { navController.navigate(LedgerRoute.RECONCILIATION) },
                 onParseText = viewModel::parseOrderText,
-                onSave = { payload -> viewModel.add(payload) { navController.popBackStack() } }
+                onSave = viewModel::saveOcr
             )
         }
         composable(LedgerRoute.RECONCILIATION) {
@@ -453,7 +458,8 @@ private fun LedgerShell(
                         importMessage = result.fold({ "补记成功" }, { it.message ?: "补记失败" })
                     }
                 },
-                onIgnore = viewModel::ignoreImport)
+                onIgnore = viewModel::ignoreImport,
+                onRetain = viewModel::retainImport)
         }
         composable(LedgerRoute.SETTLEMENT) { entry ->
             val project = projects.firstOrNull { it.projectId == entry.arguments?.getString("projectId") }

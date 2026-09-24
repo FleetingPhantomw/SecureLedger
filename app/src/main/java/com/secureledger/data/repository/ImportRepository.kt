@@ -1,19 +1,25 @@
 package com.secureledger.data.repository
 
+import androidx.room.withTransaction
 import com.secureledger.core.crypto.AesGcmManager
 import com.secureledger.core.crypto.HashManager
 import com.secureledger.core.crypto.KeyManager
 import com.secureledger.core.crypto.decodeBase64
+import com.secureledger.core.crypto.encodeBase64
+import com.secureledger.core.importer.BusinessFingerprint
 import com.secureledger.core.importer.DuplicateLevel
 import com.secureledger.core.importer.ImportedTransaction
+import com.secureledger.core.importer.ReconciliationMatcher
 import com.secureledger.core.importer.ReconciliationStatus
 import com.secureledger.core.ledger.PlainRecordPayload
 import com.secureledger.data.database.AppDatabase
 import com.secureledger.data.entity.ImportedTransactionEntity
+import com.secureledger.data.entity.ImportBatchEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.util.UUID
 
 data class ImportedTransactionView(
     val importedId: String,
@@ -39,6 +45,46 @@ class ImportRepository(
     fun observeTransactions(identity: KeyManager.UserIdentity): Flow<List<ImportedTransactionView>> =
         dao.observeTransactions().map { entities -> entities.mapNotNull { decrypt(it, identity) } }
 
+    /** Persists every user-selected row as an encrypted external anchor, never as an automatic ledger edit. */
+    suspend fun importBatch(
+        identity: KeyManager.UserIdentity,
+        displayName: String,
+        transactions: List<ImportedTransaction>
+    ): Int {
+        require(transactions.isNotEmpty()) { "没有可导入的流水" }
+        require(transactions.size <= 500) { "单次最多导入 500 笔" }
+        val previous = dao.getTransactions().mapNotNull { decrypt(it, identity)?.transaction }
+        val records = ledgerRepository.getDecryptedRecords(identity)
+            .filter { it.payload.recordType != "CORRECTION" }
+            .map { it.secure.recordId to it.payload }
+        val batchId = "b_${UUID.randomUUID()}"
+        val now = System.currentTimeMillis()
+        val staged = mutableListOf<ImportedTransaction>()
+        val entities = transactions.map { transaction ->
+            val importedId = "i_${UUID.randomUUID()}"
+            val duplicate = (previous + staged).map { BusinessFingerprint.classify(transaction, it) }
+                .minByOrNull { it.ordinal } ?: DuplicateLevel.NOT_DUPLICATE
+            val match = ReconciliationMatcher.match(transaction, records)
+            val status = if (duplicate != DuplicateLevel.NOT_DUPLICATE) ReconciliationStatus.DUPLICATE_REVIEW else match.status
+            val explanation = if (status == ReconciliationStatus.DUPLICATE_REVIEW) "与已导入流水相似，请决定保留或忽略" else match.explanation
+            val clear = json.encodeToString(TransactionEnvelope.serializer(), TransactionEnvelope(transaction)).toByteArray(Charsets.UTF_8)
+            val encrypted = AesGcmManager.encrypt(identity.masterKey, clear, aad(importedId, batchId, transaction.sourceType))
+            staged += transaction
+            ImportedTransactionEntity(
+                importedId, batchId, transaction.sourceType, encrypted.bytes.encodeBase64(),
+                encrypted.nonce.encodeBase64(), HashManager.sha256Hex(encrypted.bytes),
+                BusinessFingerprint.calculate(transaction), duplicate.name, status.name,
+                if (status == ReconciliationStatus.DUPLICATE_REVIEW) null else match.matchedRecordId,
+                explanation, now
+            )
+        }
+        database.withTransaction {
+            dao.insertBatch(ImportBatchEntity(batchId, "BANK", displayName.take(100), now, entities.size, 0))
+            dao.insertTransactions(entities)
+        }
+        return entities.size
+    }
+
     suspend fun supplement(identity: KeyManager.UserIdentity, importedId: String): String {
         val entity = dao.getTransactions().firstOrNull { it.importedId == importedId }
             ?: error("导入流水不存在")
@@ -63,7 +109,19 @@ class ImportRepository(
     }
 
     suspend fun ignore(importedId: String) {
+        val entity = dao.getTransactions().firstOrNull { it.importedId == importedId }
+            ?: error("导入流水不存在")
+        require(entity.status != ReconciliationStatus.SUPPLEMENTED.name && entity.status != ReconciliationStatus.MATCHED.name) {
+            "该流水已关联账目，不能直接忽略"
+        }
         dao.updateResolution(importedId, ReconciliationStatus.IGNORED.name, null, "用户确认忽略")
+    }
+
+    suspend fun retain(importedId: String) {
+        val entity = dao.getTransactions().firstOrNull { it.importedId == importedId }
+            ?: error("导入流水不存在")
+        require(entity.status == ReconciliationStatus.DUPLICATE_REVIEW.name) { "该流水不在重复核对状态" }
+        dao.updateResolution(importedId, ReconciliationStatus.RETAINED.name, null, "用户确认保留此重复流水（不自动补记）")
     }
 
     private fun decrypt(entity: ImportedTransactionEntity, identity: KeyManager.UserIdentity): ImportedTransactionView? = runCatching {

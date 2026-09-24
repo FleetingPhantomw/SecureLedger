@@ -57,4 +57,38 @@ class OrderParserTest {
         assertEquals("东区食堂", MerchantParser.parse(listOf("支付成功", "东区食堂", "实付 12.00")))
         assertTrue(PaymentParser.parse(listOf("订单号 123456", "总计 20.00")).isEmpty())
     }
+
+    @Test
+    fun cardTailAndOrderIdCannotOverrideSignedReceiptAmount() {
+        val order = parser.parse("""
+            账单详情
+            南京诚善科技有限公司
+            -2.00
+            交易成功
+            支付时间
+            2026-09-2315:51:28
+            付款方式
+            建设银行信用卡(8073)>
+            商品说明 76915457539
+        """.trimIndent())
+        assertEquals(200L, order.amountCents)
+        assertEquals("南京诚善科技有限公司", order.merchant)
+        assertNotNull(order.transactionTime)
+        assertTrue(order.payments.isEmpty())
+    }
+
+    @Test
+    fun recognizesWechatDateWithoutSpacing() {
+        val order = parser.parse("""
+            拼多多
+            -6.37
+            支付成功
+            2026年09月23日17:51:59
+            商户单号
+            XP1026092317201626075715006680
+            支付方式 零钱
+        """.trimIndent())
+        assertEquals(637L, order.amountCents)
+        assertNotNull(order.transactionTime)
+    }
 }

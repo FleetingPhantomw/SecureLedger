@@ -50,7 +50,8 @@ enum class ReconciliationStatus {
     CONFLICT,
     DUPLICATE_REVIEW,
     IGNORED,
-    SUPPLEMENTED
+    SUPPLEMENTED,
+    RETAINED
 }
 
 /** Explainable result of comparing one external anchor with local records. */

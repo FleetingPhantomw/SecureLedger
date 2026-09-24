@@ -41,10 +41,14 @@ fun ReconciliationScreen(
     operationMessage: String?,
     onBack: () -> Unit,
     onSupplement: (String) -> Unit,
-    onIgnore: (String) -> Unit
+    onIgnore: (String) -> Unit,
+    onRetain: (String) -> Unit
 ) {
     var filter by remember { mutableStateOf<ReconciliationStatus?>(null) }
-    val visible = entries.filter { filter == null || it.status == filter }
+    val visible = entries.filter {
+        filter == null || if (filter == ReconciliationStatus.DUPLICATE_REVIEW) it.duplicateLevel != DuplicateLevel.NOT_DUPLICATE
+        else it.status == filter
+    }
     Scaffold(topBar = {
         TopAppBar(title = { Text("历史导入记录") }, navigationIcon = { TextButton(onClick = onBack) { Text("返回") } })
     }) { padding ->
@@ -57,7 +61,7 @@ fun ReconciliationScreen(
                 FilterChip(filter == null, { filter = null }, { Text("全部") })
                 FilterChip(filter == ReconciliationStatus.MISSING, { filter = ReconciliationStatus.MISSING }, { Text("漏记") })
                 FilterChip(filter == ReconciliationStatus.CONFLICT, { filter = ReconciliationStatus.CONFLICT }, { Text("冲突") })
-                FilterChip(filter == ReconciliationStatus.DUPLICATE_REVIEW, { filter = ReconciliationStatus.DUPLICATE_REVIEW }, { Text("重复") })
+                FilterChip(filter == ReconciliationStatus.DUPLICATE_REVIEW, { filter = ReconciliationStatus.DUPLICATE_REVIEW }, { Text("重复（${entries.count { it.duplicateLevel != DuplicateLevel.NOT_DUPLICATE }}）") })
             }
             if (visible.isEmpty()) {
                 Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
@@ -74,7 +78,8 @@ fun ReconciliationScreen(
                             entry = entry,
                             showActions = entry.status.needsAttention(),
                             onSupplement = { onSupplement(entry.importedId) },
-                            onIgnore = { onIgnore(entry.importedId) }
+                            onIgnore = { onIgnore(entry.importedId) },
+                            onRetain = { onRetain(entry.importedId) }
                         )
                     }
                 }
@@ -88,7 +93,8 @@ private fun ImportedRow(
     entry: ImportedTransactionView,
     showActions: Boolean,
     onSupplement: () -> Unit = {},
-    onIgnore: () -> Unit = {}
+    onIgnore: () -> Unit = {},
+    onRetain: () -> Unit = {}
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -104,8 +110,13 @@ private fun ImportedRow(
             if (showActions) {
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onSupplement) { Text("确认补记") }
-                    TextButton(onClick = onIgnore) { Text("忽略") }
+                    if (entry.status == ReconciliationStatus.DUPLICATE_REVIEW) {
+                        Button(onClick = onRetain) { Text("保留流水") }
+                        TextButton(onClick = onIgnore) { Text("忽略流水") }
+                    } else {
+                        Button(onClick = onSupplement) { Text("确认补记") }
+                        TextButton(onClick = onIgnore) { Text("忽略") }
+                    }
                 }
             }
         }
@@ -124,6 +135,7 @@ private fun statusName(status: ReconciliationStatus) = when (status) {
     ReconciliationStatus.DUPLICATE_REVIEW -> "疑似重复"
     ReconciliationStatus.IGNORED -> "已忽略"
     ReconciliationStatus.SUPPLEMENTED -> "已补记"
+    ReconciliationStatus.RETAINED -> "已保留"
 }
 
 private fun duplicateName(level: DuplicateLevel) = when (level) {
