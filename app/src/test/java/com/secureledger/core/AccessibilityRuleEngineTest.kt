@@ -56,4 +56,20 @@ class AccessibilityRuleEngineTest {
         assertFalse(deduplicator.shouldPrompt(candidate, 60_000, 2000))
         assertTrue(deduplicator.shouldPrompt(candidate, 60_000, 61_000))
     }
+
+    @Test
+    fun recognizesStandaloneNegativeReceiptAmountWithoutCurrencySymbol() {
+        val candidate = engine.evaluate(alipay.targetPackage,
+            listOf("账单详情", "南京诚善科技有限公司", "-2.00", "交易成功", "付款方式", "建设银行信用卡(8073)"),
+            listOf(alipay), 1000)!!
+        assertEquals(200, candidate.amountCents)
+        assertEquals("南京诚善科技有限公司", candidate.merchant)
+    }
+
+    @Test
+    fun refusesAmbiguousMultiOrderScreen() {
+        assertNull(engine.evaluate(alipay.targetPackage,
+            listOf("支付成功", "商户：甲店", "实付 ¥12.00", "商户：乙店", "实付 ¥12.00"),
+            listOf(alipay), 1000))
+    }
 }

@@ -32,7 +32,7 @@ class SecureLedgerApplication : Application() {
     val keyManager by lazy { KeyManager(this) }
     val database by lazy { AppDatabase.getInstance(this) }
     val projectKeyRepository by lazy { ProjectKeyRepository(database.projectKeyDao()) }
-    val ledgerRepository by lazy { LedgerRepository(database.ledgerRecordDao(), keyManager, projectKeyRepository) }
+    val ledgerRepository by lazy { LedgerRepository(database.ledgerRecordDao(), keyManager, projectKeyRepository, database) }
     val projectRepository by lazy { ProjectRepository(database.projectDao(), projectKeyRepository) }
     val settlementRepository by lazy { SettlementRepository(database, projectKeyRepository) }
     val syncRepository by lazy { SyncRepository(database, projectKeyRepository) }

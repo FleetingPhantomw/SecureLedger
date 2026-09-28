@@ -2,6 +2,7 @@ package com.secureledger.feature.settings
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
@@ -50,15 +51,24 @@ internal fun RecognitionSettingsSection(preferences: AccessibilityPreferences) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by preferences.state.collectAsState()
     var osEnabled by remember { mutableStateOf(isServiceEnabled(context)) }
+    var overlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var notificationsGranted by remember { mutableStateOf(Build.VERSION.SDK_INT < 33 ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) }
     var customPackage by remember { mutableStateOf("") }
     var message by remember { mutableStateOf<String?>(null) }
     var editingRule by remember { mutableStateOf<TransactionRule?>(null) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) message = "通知权限未开启，可选择即时浮层提醒"
+        notificationsGranted = granted
+        if (!granted) message = "通知权限未开启，无法显示服务状态与受保护页面的备用提醒"
     }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) osEnabled = isServiceEnabled(context)
+            if (event == Lifecycle.Event.ON_RESUME) {
+                osEnabled = isServiceEnabled(context)
+                overlayGranted = Settings.canDrawOverlays(context)
+                notificationsGranted = Build.VERSION.SDK_INT < 33 ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -70,7 +80,7 @@ internal fun RecognitionSettingsSection(preferences: AccessibilityPreferences) {
         Text("自动识别消费")
         Switch(checked = state.enabled, onCheckedChange = { enabled ->
             preferences.setEnabled(enabled)
-            if (enabled && state.promptMode == PromptMode.NOTIFICATION && Build.VERSION.SDK_INT >= 33 &&
+            if (enabled && Build.VERSION.SDK_INT >= 33 &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
@@ -80,11 +90,24 @@ internal fun RecognitionSettingsSection(preferences: AccessibilityPreferences) {
     OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, modifier = Modifier.fillMaxWidth()) {
         Text("打开系统无障碍设置")
     }
+    Text(if (notificationsGranted) "通知权限已开启：可显示服务状态与备用提醒" else "通知权限未开启：无法显示后台状态与备用提醒", style = MaterialTheme.typography.bodySmall)
+    if (!notificationsGranted && Build.VERSION.SDK_INT >= 33) OutlinedButton(onClick = {
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }, modifier = Modifier.fillMaxWidth()) { Text("允许通知") }
+    Text(if (overlayGranted) "悬浮窗权限已开启" else "悬浮窗权限未开启：系统会尝试通知提醒", style = MaterialTheme.typography.bodySmall)
+    OutlinedButton(onClick = {
+        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:${context.packageName}")))
+    }, modifier = Modifier.fillMaxWidth()) { Text("打开悬浮窗权限设置") }
     Text("识别应用", style = MaterialTheme.typography.labelLarge)
-    listOf("支付宝" to "com.eg.android.AlipayGphone", "微信" to "com.tencent.mm").forEach { (label, packageName) ->
+    val commonPackages = listOf(
+        "支付宝" to "com.eg.android.AlipayGphone", "微信" to "com.tencent.mm",
+        "淘宝" to "com.taobao.taobao", "京东" to "com.jingdong.app.mall", "拼多多" to "com.xunmeng.pinduoduo"
+    )
+    commonPackages.forEach { (label, packageName) ->
         FilterChip(state.selectedPackages.contains(packageName), { preferences.setPackageSelected(packageName, !state.selectedPackages.contains(packageName)) }, { Text(label) })
     }
-    state.selectedPackages.filterNot { it == "com.eg.android.AlipayGphone" || it == "com.tencent.mm" }.forEach { packageName ->
+    state.selectedPackages.filterNot { selected -> commonPackages.any { it.second == selected } }.forEach { packageName ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(packageName, style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { preferences.setPackageSelected(packageName, false) }) { Text("移除") }
@@ -103,7 +126,10 @@ internal fun RecognitionSettingsSection(preferences: AccessibilityPreferences) {
             if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                 notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }, { Text("通知提醒") })
-        FilterChip(state.promptMode == PromptMode.OVERLAY, { preferences.setPromptMode(PromptMode.OVERLAY) }, { Text("即时浮层") })
+        FilterChip(state.promptMode == PromptMode.OVERLAY, {
+            preferences.setPromptMode(PromptMode.OVERLAY)
+            if (!Settings.canDrawOverlays(context)) message = "请在上方开启悬浮窗权限；未授权时自动改用通知提醒"
+        }, { Text("即时浮层") })
     }
     Text("识别规则", style = MaterialTheme.typography.labelLarge)
     state.rules.forEach { rule ->

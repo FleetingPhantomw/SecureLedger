@@ -16,18 +16,16 @@ enum class PromptMode { NOTIFICATION, OVERLAY }
 data class RecognitionSettings(
     val enabled: Boolean = false,
     val selectedPackages: Set<String> = emptySet(),
-    val promptMode: PromptMode = PromptMode.NOTIFICATION,
-    val rules: List<TransactionRule> = PresetTransactionRules.rules
+    val promptMode: PromptMode = PromptMode.OVERLAY,
+    val rules: List<TransactionRule> = PresetTransactionRules.rules,
+    val schemaVersion: Int = 1
 )
 
 /** Persists configuration only, never third-party screen content or transaction candidates. */
 class AccessibilityPreferences(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences("payment_recognition", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true }
-    private val _state = MutableStateFlow(
-        preferences.getString("settings", null)?.let { runCatching { json.decodeFromString<RecognitionSettings>(it) }.getOrNull() }
-            ?: RecognitionSettings()
-    )
+    private val _state = MutableStateFlow(loadSettings())
     val state = _state.asStateFlow()
 
     fun setEnabled(enabled: Boolean) = save(_state.value.copy(enabled = enabled))
@@ -48,6 +46,20 @@ class AccessibilityPreferences(context: Context) {
     }
 
     fun deleteRule(id: String) = save(_state.value.copy(rules = _state.value.rules.filterNot { it.id == id }))
+
+    private fun loadSettings(): RecognitionSettings {
+        val stored = preferences.getString("settings", null)?.let {
+            runCatching { json.decodeFromString<RecognitionSettings>(it) }.getOrNull()
+        } ?: return RecognitionSettings(schemaVersion = 2)
+        if (stored.schemaVersion >= 2) return stored
+        val additions = PresetTransactionRules.rules.filter { preset ->
+            preset.id in setOf("taobao-payment", "jd-payment", "pdd-payment") &&
+                stored.rules.none { it.id == preset.id }
+        }
+        val upgraded = stored.copy(rules = stored.rules + additions, schemaVersion = 2)
+        preferences.edit().putString("settings", json.encodeToString(upgraded)).apply()
+        return upgraded
+    }
 
     private fun save(settings: RecognitionSettings) {
         check(preferences.edit().putString("settings", json.encodeToString(settings)).commit()) { "无法保存识别设置" }

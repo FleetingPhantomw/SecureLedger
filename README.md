@@ -25,9 +25,9 @@ Original records are append-only. A correction is a separately encrypted and sig
 - Multi-user project creation, member list, signed join/invitation exchange and independent project keys.
 - AA balances, deterministic transfer plan, project Merkle-bound proof and QR/clipboard multi-member co-signing.
 - Signed QR sync packages with replay protection, record validation, and multi-code framing for larger ledgers.
-- Opt-in payment candidate recognition in selected apps, with editable rules and mandatory review before saving.
-- Bundled PP-OCRv6_small Chinese OCR from camera, image, Android share intent or clipboard text, followed by mandatory confirmation. Receipt parsing rejects card tails/order IDs as amounts and requires an explicit transaction time.
-- Bank-statement screenshots split into multiple editable, encrypted external transactions. Possible duplicates are shown separately and can be retained or ignored by the user without rewriting the signed ledger. Shopping order-list screenshots are split into individual payable orders; refunded orders are excluded and each remaining order needs confirmation.
+- Opt-in payment candidate recognition in selected apps, with editable rules and mandatory review before saving. Enable accessibility, notifications, and display-over-other-apps in Recognition Settings for overlay reminders; the status notification reports the service connection but does not keep it alive by itself. If a protected payment page suppresses an overlay, the app retries once after a window transition without polling.
+- Bundled PP-OCRv6_small Chinese OCR from camera, image, Android share intent or clipboard text, followed by mandatory confirmation. Single-receipt parsing rejects card tails/order IDs as amounts and requires an explicit transaction time.
+- Bank-statement screenshots split into multiple editable, encrypted external transactions. An unsigned amount defaults to income and a minus sign to expense. Possible duplicates are shown separately and can be retained or ignored by the user without rewriting the signed ledger. Shopping order-list screenshots split cards into independent orders even when products repeat. Closed/canceled cards are omitted; Taobao refunded cards remain for explicit user choice, while Pinduoduo refunded cards remain excluded. Selected shopping orders can be saved atomically as separate signed records. Missing order time is marked as an estimated import time.
 - Historical encrypted statement imports remain readable and reconcilable; new CSV imports have been removed.
 - Room migrations through schema v7; prior vault and legacy project data remain readable.
 
@@ -70,7 +70,7 @@ Open the repository root as a Gradle project in Android Studio or IntelliJ IDEA,
 The device suite covers Android Keystore/Room persistence, tamper detection, OCR/CameraX, accessibility privacy filtering, backup round-trip, QR scanning, recipient-bound project invitation, cross-replica sync, two-user AA co-signing, and rotation-safe unlock state with wrong-password retry.
 The [verification matrix](docs/TESTING.md) distinguishes automated, manually checked, and still-pending physical-device coverage.
 
-An optional local OCR fixture test reads screenshots only from the app's private `files/receipt-fixtures` directory on the selected emulator. The `交易示例/` source folder is ignored by Git, screenshots are not packaged in the APK, and OCR output stays in the app-private `receipt-fixtures-result.json`. With the current 11 local samples, the test checks six bank list counts (10/8/8/6/9/8), two shopping list counts (2/3 after excluding a refund), and three single-receipt amounts. Run `ReceiptFixtureBenchmarkTest` only on an emulator you control; clear staged copies after testing.
+An optional local OCR fixture test reads screenshots only from the app's private `files/receipt-fixtures` directory on the selected emulator. The `交易示例/` source folder is ignored by Git, screenshots are not packaged in the APK, and OCR output stays in the app-private `receipt-fixtures-result.json`. With the current 15 local samples, the test checks seven bank list counts (10/8/8/6/9/8/6), five shopping list counts (2/3/2/2/3), and three single-receipt amounts. Run `ReceiptFixtureBenchmarkTest` only on an emulator you control; clear staged copies after testing.
 
 ## Privacy and recovery
 

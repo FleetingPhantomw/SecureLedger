@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter
 
 /** Deterministic rule evaluation over short, already-filtered accessibility text. */
 class TransactionRuleEngine {
+    private val signedReceiptAmount = Regex("^\\s*[-−]\\s*[¥￥]?\\s*(\\d{1,7}[.,]\\d{1,2})\\s*$")
     fun evaluate(
         packageName: String,
         visibleLines: List<String>,
@@ -35,22 +36,30 @@ class TransactionRuleEngine {
         val amountPattern = runCatching { Regex(rule.amountRegex) }.getOrNull() ?: return null
         val matches = lines.flatMapIndexed { index, line ->
             if (rule.negativeKeywords.any { it.isNotBlank() && line.contains(it, ignoreCase = true) }) emptyList()
-            else amountPattern.findAll(line).mapNotNull { match ->
-                val amount = match.groupValues.getOrNull(1).orEmpty().ifBlank { match.value }
+            else (amountPattern.findAll(line).map { it.groupValues.getOrNull(1).orEmpty().ifBlank { it.value } }.toList() +
+                listOfNotNull(signedReceiptAmount.matchEntire(line)?.groupValues?.get(1))).mapNotNull { amount ->
                 val cents = runCatching {
                     amount.replace(',', '.').replace(Regex("[^0-9.]"), "")
                         .toBigDecimal().multiply(BigDecimal(100)).longValueExact()
                 }.getOrNull() ?: return@mapNotNull null
                 if (cents !in 1..100_000_000) return@mapNotNull null
-                val score = amountScore(line, lines.getOrNull(index - 1), lines.getOrNull(index + 1))
-                if (score < 2) return@mapNotNull null
+                val score = amountScore(line, lines, index, rule.positiveKeywords)
+                if (score < 3) return@mapNotNull null
                 Triple(cents, score, index)
-            }.toList()
-        }
+            }.distinctBy { it.first to it.third }
+        }.distinctBy { it.first to it.third }
+        // A marketplace order list is not a single payment confirmation.
+        if (matches.map { it.third }.distinct().size > 1) return null
         val winner = matches.maxWithOrNull(compareBy<Triple<Long, Int, Int>> { it.second }.thenBy { -it.third })
             ?: return null
-        val merchant = extract(rule.merchantRegex, text)
-            ?.lineSequence()?.firstOrNull()?.trim()?.take(60).orEmpty()
+        val merchant = extract(rule.merchantRegex, text)?.lineSequence()?.firstOrNull()?.trim()?.take(60)
+            ?.takeUnless { it.contains("单号") || it.contains("时间") || it.contains("详情") }
+            ?: lines.mapIndexed { index, value -> index to value }
+                .filter { (index, value) ->
+                    kotlin.math.abs(index - winner.third) in 1..4 && value.length in 2..60 &&
+                        value.any { it in '\u4e00'..'\u9fff' } &&
+                        listOf("账单详情", "交易详情", "支付时间", "付款方式", "当前状态", "收款方", "商品说明", "交易成功", "支付成功", "商户单号", "服务", "喜欢").none(value::contains)
+                }.minByOrNull { (index, _) -> kotlin.math.abs(index - winner.third) }?.second?.take(60).orEmpty()
         val channel = extract(rule.paymentChannelRegex, text)?.let { raw ->
             when {
                 raw.contains("微信") || raw.contains("零钱") -> "微信"
@@ -72,11 +81,16 @@ class TransactionRuleEngine {
         return TransactionCandidate(id, winner.first, merchant, channel, transactionTime, packageName, rule.id, confidence)
     }
 
-    private fun amountScore(line: String, previous: String?, next: String?): Int {
+    private fun amountScore(line: String, lines: List<String>, index: Int, positive: List<String>): Int {
         val strong = listOf("实付", "付款金额", "支付金额", "已支付", "实际支付", "本次付款")
         if (strong.any(line::contains)) return 5
+        val nearby = lines.subList((index - 4).coerceAtLeast(0), (index + 5).coerceAtMost(lines.size))
+        if (signedReceiptAmount.matches(line) && nearby.any { value -> positive.any { it.isNotBlank() && value.contains(it) } }) return 5
+        val previous = lines.getOrNull(index - 1)
+        val next = lines.getOrNull(index + 1)
         if (line.contains('¥') || line.contains('￥') || line.contains('元')) {
             if (strong.any { previous?.contains(it) == true || next?.contains(it) == true }) return 4
+            if (nearby.any { value -> positive.any { it.isNotBlank() && value.contains(it) } }) return 3
             return 2
         }
         if (strong.any { previous?.contains(it) == true || next?.contains(it) == true }) return 3

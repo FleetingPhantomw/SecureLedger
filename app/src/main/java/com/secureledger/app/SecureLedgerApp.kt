@@ -448,7 +448,8 @@ private fun LedgerShell(
                 existingImports = importedTransactions,
                 onViewImports = { navController.navigate(LedgerRoute.RECONCILIATION) },
                 onParseText = viewModel::parseOrderText,
-                onSave = viewModel::saveOcr
+                onSave = viewModel::saveOcr,
+                onSaveBatch = viewModel::saveOcrBatch
             )
         }
         composable(LedgerRoute.RECONCILIATION) {

@@ -34,9 +34,13 @@ class ReceiptFixtureBenchmarkTest {
         val engine = PaddleOcrEngine(context)
         val expectedBankCounts = mapOf(
             "中信银行.jpg" to 10, "中国工商银行1.jpg" to 8, "中国工商银行2.jpg" to 8,
-            "中国建设银行1.jpg" to 6, "中国建设银行2.jpg" to 9, "中国银行.jpg" to 8
+            "中国建设银行1.jpg" to 6, "中国建设银行2.jpg" to 9, "中国银行.jpg" to 8,
+            "建设银行.jpg" to 6
         )
-        val expectedShoppingCounts = mapOf("拼多多1.png" to 2, "拼多多2.png" to 3)
+        val expectedShoppingCounts = mapOf(
+            "拼多多1.png" to 2, "拼多多2.png" to 3,
+            "淘宝账单.jpg" to 2, "淘宝闪购订单页.jpg" to 2, "京东账单.jpg" to 3
+        )
         val output = JSONArray()
         for (file in inputs) {
             val sample = JSONObject().put("name", file.name)
@@ -48,12 +52,24 @@ class ReceiptFixtureBenchmarkTest {
                         OcrObservation(line.text, line.corners.map { it.x }.average().toFloat(),
                             line.corners.map { it.y }.average().toFloat(), line.confidence)
                     }
-                    val statementCount = StatementParser().parse(observations).size
-                    val shoppingCount = ShoppingOrderParser().parse(observations).size
+                    val statements = StatementParser().parse(observations)
+                    val shopping = ShoppingOrderParser().parse(observations)
+                    val statementCount = statements.size
+                    val shoppingCount = shopping.size
                     sample.put("statementCount", statementCount)
                     sample.put("shoppingCount", shoppingCount)
                     expectedBankCounts[file.name]?.let { assertEquals(file.name, it, statementCount) }
                     expectedShoppingCounts[file.name]?.let { assertEquals(file.name, it, shoppingCount) }
+                    if (file.name == "建设银行.jpg") {
+                        assertEquals(listOf(4835L, 5000L, 990L, 1120L, 4835L, 290L), statements.map { it.transaction.amountCents })
+                        assertEquals(listOf("CREDIT", "DEBIT", "DEBIT", "DEBIT", "DEBIT", "DEBIT"), statements.map { it.transaction.direction })
+                    }
+                    val shoppingAmounts = mapOf(
+                        "淘宝账单.jpg" to listOf(6378L, 2990L),
+                        "淘宝闪购订单页.jpg" to listOf(1120L, 4590L),
+                        "京东账单.jpg" to listOf(1738L, 1100L, 1755L)
+                    )
+                    shoppingAmounts[file.name]?.let { assertEquals(file.name, it, shopping.map { order -> order.amountCents }) }
                     if (file.name == "支付宝.jpg" || file.name.startsWith("微信")) {
                         assertEquals(file.name, if (file.name == "支付宝.jpg") 200L else 637L,
                             OrderParser().parse(result.text).amountCents)
@@ -68,7 +84,7 @@ class ReceiptFixtureBenchmarkTest {
                         }
                     })
                 }
-                .onFailure { sample.put("error", it.javaClass.simpleName) }
+                .onFailure { throw AssertionError("Fixture ${file.name} failed", it) }
             output.put(sample)
         }
         File(context.filesDir, "receipt-fixtures-result.json")

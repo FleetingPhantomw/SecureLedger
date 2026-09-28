@@ -78,7 +78,8 @@ fun OcrImportScreen(
     existingImports: List<ImportedTransactionView>,
     onViewImports: () -> Unit,
     onParseText: (String) -> Result<RecognizedOrder>,
-    onSave: (PlainRecordPayload, (Result<Unit>) -> Unit) -> Unit
+    onSave: (PlainRecordPayload, (Result<Unit>) -> Unit) -> Unit,
+    onSaveBatch: (List<PlainRecordPayload>, (Result<Int>) -> Unit) -> Unit
 ) {
     val context = LocalContext.current
     var draft by remember { mutableStateOf<RecognizedOrder?>(null) }
@@ -87,11 +88,14 @@ fun OcrImportScreen(
     var cameraVisible by remember { mutableStateOf(false) }
     var statement by remember { mutableStateOf<List<StatementCandidate>?>(null) }
     var shoppingOrders by remember { mutableStateOf<List<RecognizedOrder>?>(null) }
+    var selectedShopping by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var importMessage by remember { mutableStateOf<String?>(null) }
+    var showImportsLink by remember { mutableStateOf(false) }
 
     fun recognize(uri: Uri) {
         processing = true
         error = null
+        importMessage = null
         onRecognize(uri) { result ->
             processing = false
             result.onSuccess { draft = it; statement = null; shoppingOrders = null }.onFailure { error = it.message ?: "OCR 识别失败" }
@@ -100,6 +104,7 @@ fun OcrImportScreen(
     fun recognizeBank(uri: Uri) {
         processing = true
         error = null
+        importMessage = null
         statement = null
         onRecognizeStatement(uri) { result ->
             processing = false
@@ -109,9 +114,10 @@ fun OcrImportScreen(
     fun recognizeShopping(uri: Uri) {
         processing = true
         error = null
+        importMessage = null
         onRecognizeShoppingOrders(uri) { result ->
             processing = false
-            result.onSuccess { shoppingOrders = it; draft = null; statement = null }
+            result.onSuccess { shoppingOrders = it; selectedShopping = it.indices.toSet(); draft = null; statement = null }
                 .onFailure { error = it.message ?: "购物订单识别失败" }
         }
     }
@@ -123,10 +129,13 @@ fun OcrImportScreen(
             result.onSuccess {
                 if (shoppingOrders?.firstOrNull() == order) {
                     shoppingOrders = shoppingOrders?.drop(1)
+                    selectedShopping = selectedShopping.filter { it > 0 }.map { it - 1 }.toSet()
                     importMessage = if (shoppingOrders.isNullOrEmpty()) "订单已保存" else "已保存，继续核对下一笔"
+                    showImportsLink = false
                 } else {
                     draft = null
                     importMessage = "账目已保存"
+                    showImportsLink = false
                 }
             }.onFailure { error = it.message ?: "保存失败" }
         }
@@ -179,7 +188,7 @@ fun OcrImportScreen(
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             importMessage?.let {
                 Text(it, color = MaterialTheme.colorScheme.primary)
-                TextButton(onClick = onViewImports) { Text("查看导入流水及重复项") }
+                if (showImportsLink) TextButton(onClick = onViewImports) { Text("查看导入流水及重复项") }
             }
             statement?.let { candidates ->
                 StatementReview(candidates, existingImports, processing, onImport = { selected ->
@@ -189,6 +198,7 @@ fun OcrImportScreen(
                         result.onSuccess { count ->
                             statement = null
                             importMessage = "已加密导入 $count 笔流水。重复项可在历史导入记录单独核对。"
+                            showImportsLink = true
                         }.onFailure { error = it.message ?: "导入失败" }
                     }
                 })
@@ -197,12 +207,59 @@ fun OcrImportScreen(
                 OrderConfirmation(order, processing) { save(order, it) }
             }
             shoppingOrders?.firstOrNull()?.let { order ->
-                Text("待确认订单：${shoppingOrders?.size ?: 0} 笔；退款订单已排除。", style = MaterialTheme.typography.titleMedium)
-                OrderConfirmation(order, processing) { save(order, it) }
+                Text("待确认订单：${shoppingOrders?.size ?: 0} 笔；关闭或取消订单已排除。", style = MaterialTheme.typography.titleMedium)
+                Text("每张订单卡片独立记账，即使商户或商品同名。可勾选一键批量保存；金额不确定的订单请取消勾选并在下方逐笔编辑。", style = MaterialTheme.typography.bodySmall)
+                shoppingOrders?.forEachIndexed { index, candidate ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Checkbox(index in selectedShopping, enabled = !processing, onCheckedChange = { checked ->
+                            selectedShopping = if (checked) selectedShopping + index else selectedShopping - index
+                        })
+                        Column {
+                            Text("${candidate.merchant} · ¥${candidate.amountCents?.let { "${it / 100}.${(it % 100).toString().padStart(2, '0')}" } ?: "待核对"}")
+                            candidate.warnings.filter { "实付总额" in it || "应付款" in it || "退款成功" in it }.forEach {
+                                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                Button(onClick = {
+                    val orders = shoppingOrders.orEmpty()
+                    val chosen = selectedShopping
+                    runCatching { chosen.sorted().map { shoppingPayload(orders[it]) } }
+                        .onSuccess { payloads ->
+                            processing = true
+                            onSaveBatch(payloads) { result ->
+                                processing = false
+                                result.onSuccess { count ->
+                                    shoppingOrders = orders.filterIndexed { index, _ -> index !in chosen }
+                                    selectedShopping = emptySet()
+                                    importMessage = "已批量记账 $count 笔；交易时间已标记为估计值。"
+                                    showImportsLink = false
+                                }.onFailure { error = it.message ?: "批量记账失败" }
+                            }
+                        }.onFailure { error = it.message ?: "请核对订单金额" }
+                }, enabled = selectedShopping.isNotEmpty() && !processing, modifier = Modifier.fillMaxWidth()) {
+                    Text("确认批量记账 ${selectedShopping.size} 笔")
+                }
+                Text("逐笔编辑当前订单", style = MaterialTheme.typography.titleSmall)
+                OrderConfirmation(order, processing, allowMissingTime = true) { save(order, it) }
             }
         }
     }
 }
+
+private fun shoppingPayload(order: RecognizedOrder): PlainRecordPayload = PlainRecordPayload(
+    recordType = "EXPENSE",
+    amountCents = requireNotNull(order.amountCents) { "订单金额缺失" },
+    category = order.category,
+    merchant = order.merchant,
+    note = order.rawText.take(500),
+    account = order.account,
+    paymentChannel = order.paymentChannel,
+    orderId = order.orderId,
+    tags = listOf("ocr", "shopping-batch", "user-confirmed") + if (order.transactionTime == null) listOf("time-estimated") else emptyList(),
+    transactionTime = order.transactionTime ?: System.currentTimeMillis()
+)
 
 @Composable
 private fun StatementReview(
@@ -296,7 +353,7 @@ private fun StatementRowEditor(transaction: ImportedTransaction, onChange: (Impo
 }
 
 @Composable
-private fun OrderConfirmation(order: RecognizedOrder, processing: Boolean, onSave: (PlainRecordPayload) -> Unit) {
+private fun OrderConfirmation(order: RecognizedOrder, processing: Boolean, allowMissingTime: Boolean = false, onSave: (PlainRecordPayload) -> Unit) {
     var amount by remember(order) { mutableStateOf(order.amountCents?.let { "${it / 100}.${(it % 100).toString().padStart(2, '0')}" }.orEmpty()) }
     var merchant by remember(order) { mutableStateOf(order.merchant) }
     var category by remember(order) { mutableStateOf(order.category) }
@@ -316,7 +373,8 @@ private fun OrderConfirmation(order: RecognizedOrder, processing: Boolean, onSav
             OutlinedTextField(category, { category = it }, label = { Text("分类") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(channel, { channel = it }, label = { Text("支付渠道") }, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(account, { account = it }, label = { Text("账户") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(timeText, { timeText = it }, label = { Text("交易时间 yyyy-MM-dd HH:mm（必填）") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(timeText, { timeText = it }, label = { Text("交易时间 yyyy-MM-dd HH:mm${if (allowMissingTime) "（可留空）" else "（必填）"}") }, modifier = Modifier.fillMaxWidth())
+            if (allowMissingTime && timeText.isBlank()) Text("留空将使用导入时刻，并标记为估计时间；不会声称这是支付时间。", style = MaterialTheme.typography.bodySmall)
             OutlinedTextField(note, { note = it }, label = { Text("备注 / OCR 原文摘要") }, minLines = 3, modifier = Modifier.fillMaxWidth())
             if (order.payments.isNotEmpty()) {
                 Text("组合支付", style = MaterialTheme.typography.labelLarge)
@@ -328,13 +386,17 @@ private fun OrderConfirmation(order: RecognizedOrder, processing: Boolean, onSav
                     val cents = (amount.toBigDecimal() * BigDecimal(100)).longValueExact()
                     require(cents >= 0) { "金额不能为负数" }
                     val payments = order.payments.takeIf { it.sumOf(PaymentDetail::amountCents) == cents }.orEmpty()
-                    val timestamp = LocalDateTime.parse(timeText.trim(), DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                        .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                    val estimatedTime = allowMissingTime && timeText.isBlank()
+                    val timestamp = if (estimatedTime) System.currentTimeMillis() else
+                        LocalDateTime.parse(timeText.trim(), DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                            .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
                     PlainRecordPayload(
                         recordType = "EXPENSE", amountCents = cents, category = category,
                         merchant = merchant, note = note, account = account, paymentChannel = channel,
                         orderId = order.orderId, payments = payments,
-                        tags = listOf("ocr", "user-confirmed") + if (payments.any(PaymentDetail::isBankDirect)) listOf("pending-reconciliation") else emptyList(),
+                        tags = listOf("ocr", "user-confirmed") +
+                            (if (estimatedTime) listOf("time-estimated") else emptyList()) +
+                            (if (payments.any(PaymentDetail::isBankDirect)) listOf("pending-reconciliation") else emptyList()),
                         transactionTime = timestamp
                     )
                 }.onSuccess(onSave).onFailure { validation = it.message ?: "请检查金额" }

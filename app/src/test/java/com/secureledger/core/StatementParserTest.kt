@@ -45,4 +45,20 @@ class StatementParserTest {
         assertEquals(650L, result.last().transaction.amountCents)
         assertEquals(LocalDate.of(2026, 9, 24), java.time.Instant.ofEpochMilli(result.first().transaction.transactionTime).atZone(ZoneOffset.UTC).toLocalDate())
     }
+
+    @Test
+    fun unsignedIsCreditAndCurrencyBeforeMinusIsDebit() {
+        val rows = listOf(
+            line("账户明细", 430, 120), line("信用卡 8073", 180, 600),
+            line("2026-9-26 周六", 150, 689),
+            line("退货退税", 124, 779), line("￥ 48.35", 667, 779),
+            line("信用卡 8073 15:46", 184, 843),
+            line("消费", 86, 968), line("￥ -50.00", 654, 968),
+            line("信用卡 8073 12:00", 184, 1033)
+        )
+        val result = parser.parse(rows)
+        assertEquals(listOf("CREDIT", "DEBIT"), result.map { it.transaction.direction })
+        assertEquals(listOf(4835L, 5000L), result.map { it.transaction.amountCents })
+        assertEquals("8073", result.first().transaction.accountLast4)
+    }
 }

@@ -192,6 +192,11 @@ internal class LedgerViewModel(
             refreshIntegrity()
         })
     }
+    fun saveOcrBatch(payloads: List<PlainRecordPayload>, callback: (Result<Int>) -> Unit) = viewModelScope.launch {
+        val result = runCatching { repository.addRecords(identity, payloads).size }
+        if (result.isSuccess) runCatching { refreshIntegrity() }
+        callback(result)
+    }
     fun parseOrderText(text: String): Result<RecognizedOrder> = runCatching { orderParser.parse(text) }
     fun verify() = viewModelScope.launch { refreshIntegrity() }
 

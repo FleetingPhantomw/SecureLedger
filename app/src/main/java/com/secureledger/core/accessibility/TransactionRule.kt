@@ -58,6 +58,24 @@ object PresetTransactionRules {
             negativeKeywords = listOf("退款", "原价", "优惠", "预计", "余额"),
             amountRegex = AMOUNT, merchantRegex = "(?:收款方|商家|商户)[:：\\s]*(.+)",
             paymentChannelRegex = "微信|零钱|银行卡", priority = 10
+        ),
+        TransactionRule(
+            id = "taobao-payment", name = "淘宝付款完成", targetPackage = "com.taobao.taobao",
+            positiveKeywords = listOf("支付成功", "付款成功"),
+            negativeKeywords = listOf("退款", "交易关闭", "已取消", "原价", "优惠", "应付款"),
+            amountRegex = AMOUNT, merchantRegex = "(?:商家|店铺|商户)[:：\\s]*(.+)", priority = 8
+        ),
+        TransactionRule(
+            id = "jd-payment", name = "京东付款完成", targetPackage = "com.jingdong.app.mall",
+            positiveKeywords = listOf("支付成功", "付款成功"),
+            negativeKeywords = listOf("退款", "已取消", "原价", "优惠", "应付款"),
+            amountRegex = AMOUNT, merchantRegex = "(?:商家|店铺|商户)[:：\\s]*(.+)", priority = 8
+        ),
+        TransactionRule(
+            id = "pdd-payment", name = "拼多多付款完成", targetPackage = "com.xunmeng.pinduoduo",
+            positiveKeywords = listOf("支付成功", "付款成功"),
+            negativeKeywords = listOf("退款", "已取消", "原价", "优惠", "应付款"),
+            amountRegex = AMOUNT, merchantRegex = "(?:商家|店铺|商户)[:：\\s]*(.+)", priority = 8
         )
     )
 }

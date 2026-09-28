@@ -14,6 +14,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -26,21 +27,50 @@ import com.secureledger.core.accessibility.TransactionCandidate
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** Foreground sheet via CandidateInbox, otherwise a small overlay or notification. */
-class PromptDispatcher(private val context: Context) {
+enum class PromptDelivery { IN_APP, OVERLAY, NOTIFICATION, PENDING }
+
+/** Foreground sheet, permission-gated application overlay, then notification/in-app fallback. */
+class PromptDispatcher(private val context: Context, private val onHandled: (String) -> Unit = {}) {
     private val notifications = context.getSystemService(NotificationManager::class.java)
     private val windows = context.getSystemService(WindowManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
     private var overlay: View? = null
 
-    fun dispatch(candidate: TransactionCandidate, mode: PromptMode) {
+    fun dispatch(candidate: TransactionCandidate, mode: PromptMode): PromptDelivery {
         if (AppVisibility.isVisible) {
             CandidateInbox.offer(candidate)
+            return PromptDelivery.IN_APP
         } else if (mode == PromptMode.OVERLAY) {
-            showOverlay(candidate)
+            if (showOverlay(candidate)) return PromptDelivery.OVERLAY
+            if (showNotification(candidate)) return PromptDelivery.NOTIFICATION
         } else {
-            showNotification(candidate)
+            if (showNotification(candidate)) return PromptDelivery.NOTIFICATION
         }
+        CandidateInbox.offer(candidate)
+        return PromptDelivery.PENDING
+    }
+
+    /** Status is observational; Android still controls the accessibility-service lifecycle. */
+    fun updateServiceStatus(active: Boolean, selectedApps: Int) {
+        if (!active || !canNotify()) {
+            notifications.cancel(STATUS_NOTIFICATION_ID)
+            return
+        }
+        notifications.createNotificationChannel(NotificationChannel(
+            STATUS_CHANNEL_ID, "自动识别服务状态", NotificationManager.IMPORTANCE_LOW
+        ))
+        val open = PendingIntent.getActivity(context, STATUS_NOTIFICATION_ID,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        notifications.notify(STATUS_NOTIFICATION_ID, Notification.Builder(context, STATUS_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_menu_view)
+            .setContentTitle("SecureLedger 自动识别已连接")
+            .setContentText("监测已选择的 $selectedApps 个应用 · 点击查看设置")
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .build())
     }
 
     fun dismissOverlay() {
@@ -54,9 +84,12 @@ class PromptDispatcher(private val context: Context) {
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
     }
 
-    private fun showNotification(candidate: TransactionCandidate) {
-        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        if (!notifications.areNotificationsEnabled()) return
+    private fun canNotify(): Boolean =
+        (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
+            notifications.areNotificationsEnabled()
+
+    private fun showNotification(candidate: TransactionCandidate): Boolean {
+        if (!canNotify()) return false
         val channelId = "payment_candidates"
         notifications.createNotificationChannel(NotificationChannel(channelId, "消费识别提醒", NotificationManager.IMPORTANCE_DEFAULT))
         val review = PendingIntent.getActivity(
@@ -79,9 +112,11 @@ class PromptDispatcher(private val context: Context) {
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .build()
         notifications.notify(candidate.id.hashCode(), notification)
+        return true
     }
 
-    private fun showOverlay(candidate: TransactionCandidate) {
+    private fun showOverlay(candidate: TransactionCandidate): Boolean {
+        if (!Settings.canDrawOverlays(context)) return false
         dismissOverlay()
         val density = context.resources.displayMetrics.density
         val card = LinearLayout(context).apply {
@@ -101,10 +136,15 @@ class PromptDispatcher(private val context: Context) {
         })
         card.addView(LinearLayout(context).apply {
             gravity = Gravity.END
-            addView(Button(context).apply { text = "忽略"; setOnClickListener { dismissOverlay() } })
+            addView(Button(context).apply { text = "忽略"; setOnClickListener { onHandled(candidate.id); dismissOverlay() } })
             addView(Button(context).apply {
                 text = "记一笔"
-                setOnClickListener { dismissOverlay(); context.startActivity(reviewIntent(candidate)) }
+                setOnClickListener {
+                    onHandled(candidate.id)
+                    dismissOverlay()
+                    runCatching { context.startActivity(reviewIntent(candidate)) }
+                        .onFailure { showNotification(candidate) }
+                }
             })
         })
         var downX = 0f
@@ -113,6 +153,7 @@ class PromptDispatcher(private val context: Context) {
                 MotionEvent.ACTION_DOWN -> { downX = event.rawX; false }
                 MotionEvent.ACTION_UP -> {
                     if (kotlin.math.abs(event.rawX - downX) > 80 * density) {
+                        onHandled(candidate.id)
                         dismissOverlay()
                         true
                     } else false
@@ -122,15 +163,21 @@ class PromptDispatcher(private val context: Context) {
         }
         val params = WindowManager.LayoutParams(
             (320 * density).toInt(), WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             android.graphics.PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; y = (42 * density).toInt() }
-        runCatching { windows.addView(card, params); overlay = card }
-        handler.postDelayed({ if (overlay === card) dismissOverlay() }, 8_000)
+        val attached = runCatching { windows.addView(card, params); overlay = card }.isSuccess
+        if (attached) handler.postDelayed({ if (overlay === card) dismissOverlay() }, 8_000)
+        return attached
     }
 
     private fun formatAmount(cents: Long) = "${cents / 100}.${(cents % 100).toString().padStart(2, '0')}"
+
+    private companion object {
+        const val STATUS_CHANNEL_ID = "recognition_status"
+        const val STATUS_NOTIFICATION_ID = -917064
+    }
 }
 
 class DismissCandidateReceiver : BroadcastReceiver() {

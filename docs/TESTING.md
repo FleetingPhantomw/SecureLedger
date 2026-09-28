@@ -5,6 +5,7 @@ All Android instrumentation tests use an API 35 x86_64 emulator, namespaced test
 | Area | Evidence |
 | --- | --- |
 | Accessibility rules, actual amount extraction, negative keywords, duplicate event cooldown | JVM rule-engine tests; Android privacy/extraction tests |
+| Overlay delivery and user-choice prompt | API 35 `PromptDispatcherDeviceTest` with overlay app-op; Android 16 OEM protected-payment behavior still requires a phone check |
 | PaddleOCR Chinese recognition and boxes | Android integration test with a synthetic Chinese payment image |
 | Payment channel, last-four-digit card validation, eight-category legacy mapping | JVM taxonomy tests; Room 6→7 migration and card CRUD device tests |
 | QR framing, scanning, replay rejection and signed two-replica sync | JVM QR tests; Android sync and scanner tests |
@@ -12,6 +13,7 @@ All Android instrumentation tests use an API 35 x86_64 emulator, namespaced test
 | Editor system back, dialog system back, candidate bottom-sheet system back | `BackNavigationUiTest` against the components used by the app |
 | Predictive-back gesture from a dirty editor | API 35 Release AVD manual edge-swipe: discard dialog appeared; back closed it and retained editor draft |
 | Release install and first-use vault | Signed APK installed on a fresh API 35 AVD; vault created and home displayed |
+| Bank/marketplace OCR and independent bulk shopping records | Optional 15-screenshot private fixture benchmark; JVM parser tests; Android all-or-nothing batch transaction test |
 
 The UI automation verifies back *dispatch and destination*, not the visual quality of the predictive-back animation.
 

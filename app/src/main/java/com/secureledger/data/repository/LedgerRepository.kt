@@ -1,5 +1,6 @@
 package com.secureledger.data.repository
 
+import androidx.room.withTransaction
 import com.secureledger.core.crypto.AesGcmManager
 import com.secureledger.core.crypto.HashManager
 import com.secureledger.core.crypto.KeyManager
@@ -15,6 +16,7 @@ import com.secureledger.core.ledger.PlainRecordPayload
 import com.secureledger.core.ledger.SecureRecord
 import com.secureledger.core.merkle.MerkleTree
 import com.secureledger.data.dao.LedgerRecordDao
+import com.secureledger.data.database.AppDatabase
 import com.secureledger.data.entity.LedgerRecordEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -27,7 +29,8 @@ import java.util.UUID
 class LedgerRepository(
     private val dao: LedgerRecordDao,
     private val keyManager: KeyManager,
-    private val projectKeys: ProjectKeyRepository? = null
+    private val projectKeys: ProjectKeyRepository? = null,
+    private val database: AppDatabase? = null
 ) {
     @Serializable
     private data class PayloadEnvelope(val payload: PlainRecordPayload)
@@ -111,6 +114,17 @@ class LedgerRepository(
         )
         dao.insert(LedgerRecordEntity.fromDomain(signed))
         return signed
+    }
+
+    /** An all-or-nothing sequence of independently signed records; no silent partial batch. */
+    suspend fun addRecords(
+        identity: KeyManager.UserIdentity,
+        payloads: List<PlainRecordPayload>,
+        projectId: String = DEFAULT_PROJECT
+    ): List<SecureRecord> {
+        require(payloads.isNotEmpty() && payloads.size <= 100) { "批量记账需选择 1 至 100 笔" }
+        val room = requireNotNull(database) { "批量记账需要数据库事务" }
+        return room.withTransaction { payloads.map { addRecord(identity, it, projectId) } }
     }
 
     suspend fun verify(identity: KeyManager.UserIdentity): IntegrityReport {
