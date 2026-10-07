@@ -18,6 +18,9 @@ import com.secureledger.core.ocr.ShoppingOrderParser
 import com.secureledger.core.importer.ImportedTransaction
 import com.secureledger.core.settlement.Balance
 import com.secureledger.core.settlement.SettlementProof
+import com.secureledger.core.settlement.SelectedBillSplit
+import com.secureledger.core.settlement.SplitBill
+import kotlinx.coroutines.flow.first
 import com.secureledger.data.entity.ProjectEntity
 import com.secureledger.data.entity.ProjectMemberEntity
 import com.secureledger.data.repository.BackupRepository
@@ -131,6 +134,18 @@ internal class LedgerViewModel(
         }
 
     fun encodeSettlement(proof: SettlementProof): Result<String> = runCatching { settlementRepository.encodeForApproval(proof) }
+
+    fun createSelectedSettlement(projectId: String, recordIds: Set<String>, participants: Set<String>, callback: (Result<SettlementProof>) -> Unit) = viewModelScope.launch {
+        callback(runCatching {
+            check(repository.verify(identity).isValid) { "账本验证失败，请先检查数据" }
+            val members = projectRepository.members(projectId).map { it.userId }.toSet()
+            require(participants.all { it in members } && identity.userId in participants) { "请仅选择项目成员，并包含自己" }
+            val selected = repository.observeRecords(identity).first().filter { it.secure.projectId == projectId && it.secure.recordId in recordIds }
+            require(selected.size == recordIds.size && selected.all { it.payload.recordType == "EXPENSE" }) { "请选择项目中的有效支出" }
+            val plan = SelectedBillSplit.calculate(selected.map { SplitBill(it.secure.recordId, it.secure.authorId, it.payload.amountCents) }, participants.toList())
+            settlementRepository.createAndSave(identity, projectId, repository.projectMerkleRoot(projectId), plan.balances, plan)
+        })
+    }
 
     fun coSignSettlement(encoded: String, callback: (Result<String>) -> Unit) = viewModelScope.launch {
         callback(runCatching { settlementRepository.coSign(identity, encoded.trim()) })

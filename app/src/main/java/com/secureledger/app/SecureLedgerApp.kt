@@ -143,6 +143,7 @@ import java.time.format.DateTimeFormatter
 import java.math.BigDecimal
 import java.math.BigInteger
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.UUID
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
@@ -355,6 +356,7 @@ private fun LedgerShell(
     val pendingCandidate by CandidateInbox.pending.collectAsState()
     var latestSettlement by remember { mutableStateOf<SettlementProof?>(null) }
     var importMessage by remember { mutableStateOf<String?>(null) }
+    val sharedSync by com.secureledger.integration.sync.SyncInbox.pending.collectAsState()
     LaunchedEffect(sharedImageUri) {
         if (sharedImageUri != null) navController.navigate(LedgerRoute.OCR) { launchSingleTop = true }
     }
@@ -367,6 +369,24 @@ private fun LedgerShell(
     }
     val records by viewModel.records.collectAsStateCompat()
     val projects by viewModel.projects.collectAsStateCompat()
+    LaunchedEffect(sharedSync, projects, hasUnsavedChanges) {
+        val encoded = sharedSync ?: return@LaunchedEffect
+        if (hasUnsavedChanges) return@LaunchedEffect
+        if (encoded.startsWith("SLS1.")) {
+            val incoming = runCatching { com.secureledger.core.protocol.SettlementExchangeCodec.decode(encoded) }.getOrNull()
+            val project = projects.firstOrNull { it.projectId == incoming?.projectId }
+            if (project != null) {
+                latestSettlement = null
+                viewModel.loadMembers(project.projectId)
+                viewModel.loadLatestSettlement(project.projectId) { latestSettlement = it }
+                navController.navigate(LedgerRoute.settlement(project.projectId)) { launchSingleTop = true }
+                return@LaunchedEffect
+            }
+            if (projects.isEmpty()) return@LaunchedEffect
+        }
+        tab = Tab.SYNC
+        navController.popBackStack(LedgerRoute.MAIN, false)
+    }
     val report by viewModel.report.collectAsStateCompat()
     val importedTransactions by viewModel.importedTransactions.collectAsStateCompat()
     val projectMembers by viewModel.projectMembers.collectAsStateCompat()
@@ -466,6 +486,8 @@ private fun LedgerShell(
             val project = projects.firstOrNull { it.projectId == entry.arguments?.getString("projectId") }
             if (project != null) {
                 SettlementScreen(project, identity, projectMembers, latestSettlement,
+                    records = records.filter { it.secure.projectId == project.projectId },
+                    onCreateSelected = { ids, participants, callback -> viewModel.createSelectedSettlement(project.projectId, ids, participants, callback) },
                     onBack = navController::popBackStack,
                     onCreate = { balances, callback -> viewModel.createSettlement(project.projectId, balances, callback) },
                     onEncode = viewModel::encodeSettlement,
@@ -634,10 +656,7 @@ private fun LedgerMainTabs(
                 onOpenOcr = onOpenOcr,
                 onReviewCandidate = onReviewCandidate
             )
-            Tab.LEDGER -> LedgerScreen(
-                padding, records,
-                onOpen = onOpenRecord
-            )
+            Tab.LEDGER -> com.secureledger.feature.ledger.ModernLedgerScreen(padding, records, projects, onOpenRecord)
             Tab.PROJECTS -> ProjectScreen(
                 padding = padding,
                 projects = projects,
@@ -751,26 +770,6 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun LedgerScreen(
-    padding: PaddingValues,
-    records: List<DecryptedRecord>,
-    onOpen: (DecryptedRecord) -> Unit
-) {
-    if (records.isEmpty()) {
-        Column(Modifier.fillMaxSize().padding(padding), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(Icons.AutoMirrored.Filled.MenuBook, "空账本", tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(12.dp)); Text("还没有账目"); Text("点击右上角或右下角 + 开始记录")
-        }
-    } else LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(LedgerSpacing.page)) {
-        item { LedgerSectionTitle("全部记录") }
-        items(records.sortedByDescending { it.payload.transactionTime }, key = { it.secure.recordId }) {
-            RecordRow(it, onOpen = { onOpen(it) })
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        }
-    }
-}
-
-@Composable
 private fun ProjectScreen(
     padding: PaddingValues,
     projects: List<ProjectEntity>,
@@ -814,6 +813,12 @@ private fun SyncScreen(
     onExport: (String, (Result<String>) -> Unit) -> Unit,
     onImport: (String, (SyncImportResult) -> Unit) -> Unit
 ) {
+    val context = LocalContext.current
+    val incoming by com.secureledger.integration.sync.SyncInbox.pending.collectAsState()
+    val fileScope = androidx.compose.runtime.rememberCoroutineScope()
+    var receivedText by remember { mutableStateOf<String?>(null) }
+    var pastedText by remember { mutableStateOf("") }
+    LaunchedEffect(incoming) { incoming?.let { receivedText = it; com.secureledger.integration.sync.SyncInbox.dismiss() } }
     var exported by remember { mutableStateOf<String?>(null) }
     var selectedProjectId by remember { mutableStateOf<String?>(null) }
     var frameIndex by remember { mutableStateOf(0) }
@@ -831,7 +836,15 @@ private fun SyncScreen(
             return
         }
         operationError = null
-        onImport(value) { result -> importResult = result }
+        if (value.startsWith("SLS1.")) { operationError = "这是 AA 结算确认文件，请在对应项目的 AA 结算页面导入"; return }
+        onImport(value) { result -> importResult = result; if (result.accepted) receivedText = null }
+    }
+
+    val filePicker = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { fileScope.launch {
+            runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.secureledger.integration.sync.SyncFiles.read(context, it) } }
+                .onSuccess { receivedText = it }.onFailure { operationError = it.message }
+        } }
     }
 
     val scanner = rememberLauncherForActivityResult(ScanContract()) { scanResult ->
@@ -867,7 +880,7 @@ private fun SyncScreen(
             Spacer(Modifier.width(8.dp))
             Text("同步账本", style = MaterialTheme.typography.headlineSmall)
         }
-        Text("通过二维码与其他设备交换账目。收到的数据通过安全验证后才会写入。")
+        Text("选择账本，分享一个同步文件给成员。对方用 SecureLedger 打开并确认导入，双方新增账目各分享一次即可。二维码也可用。")
         if (projects.size > 1) {
             Text("选择账本", style = MaterialTheme.typography.labelLarge)
             projects.forEach { project ->
@@ -882,6 +895,21 @@ private fun SyncScreen(
                 }
             }
         }, enabled = selectedProjectId != null, modifier = Modifier.fillMaxWidth()) { Text("生成同步二维码") }
+        Button(onClick = { selectedProjectId?.let { id -> onExport(id) { result ->
+            result.onSuccess { encoded -> runCatching { com.secureledger.integration.sync.SyncFiles.share(context, encoded) }.onFailure { operationError = it.message } }
+                .onFailure { operationError = it.message }
+        } } }, enabled = selectedProjectId != null, modifier = Modifier.fillMaxWidth()) { Text("分享同步文件") }
+        OutlinedButton(onClick = { filePicker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("打开同步文件") }
+        receivedText?.let { encoded ->
+            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+                Text("已收到同步文件", style = MaterialTheme.typography.titleMedium)
+                Text("确认后验证成员签名、账本一致性和重复记录。")
+                Button(onClick = { submitImport(encoded) }) { Text("确认导入同步文件") }
+                TextButton(onClick = { receivedText = null }) { Text("取消") }
+            } }
+        }
+        OutlinedTextField(pastedText, { pastedText = it }, label = { Text("粘贴同步数据（可选）") }, maxLines = 3, modifier = Modifier.fillMaxWidth())
+        if (pastedText.isNotBlank()) TextButton(onClick = { submitImport(pastedText.trim()) }) { Text("导入粘贴数据") }
         frameResult?.exceptionOrNull()?.let { Text(it.message ?: "二维码数据过大", color = MaterialTheme.colorScheme.error) }
         if (frames.isNotEmpty()) {
             Card(Modifier.fillMaxWidth()) {
@@ -970,6 +998,8 @@ private fun SettlementScreen(
     identity: KeyManager.UserIdentity,
     members: List<ProjectMemberEntity>,
     previousProof: SettlementProof?,
+    records: List<DecryptedRecord>,
+    onCreateSelected: (Set<String>, Set<String>, (Result<SettlementProof>) -> Unit) -> Unit,
     onBack: () -> Unit,
     onCreate: (List<Balance>, (Result<SettlementProof>) -> Unit) -> Unit,
     onEncode: (SettlementProof) -> Result<String>,
@@ -985,10 +1015,28 @@ private fun SettlementScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var approvalInput by remember { mutableStateOf("") }
     var approvalOutput by remember { mutableStateOf<String?>(null) }
+    val sharedApproval by com.secureledger.integration.sync.SyncInbox.pending.collectAsState()
+    val fileScope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(sharedApproval) {
+        sharedApproval?.takeIf { it.startsWith("SLS1.") }?.let { encoded ->
+            val incoming = runCatching { com.secureledger.core.protocol.SettlementExchangeCodec.decode(encoded) }.getOrNull()
+            if (incoming?.projectId == project.projectId) {
+                approvalInput = encoded
+                com.secureledger.integration.sync.SyncInbox.dismiss()
+            }
+        }
+    }
+    var manualMode by remember { mutableStateOf(false) }
     LaunchedEffect(previousProof) { proof = previousProof }
     val approvalQr = remember(approvalOutput) { approvalOutput?.let(::createQrBitmap) }
     val approvalScanner = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.let { approvalInput = it; error = null }
+    }
+    val approvalFilePicker = rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { fileScope.launch {
+            runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.secureledger.integration.sync.SyncFiles.read(context, it) } }
+                .onSuccess { approvalInput = it; error = null }.onFailure { error = it.message }
+        } }
     }
 
     Scaffold(
@@ -1003,7 +1051,10 @@ private fun SettlementScreen(
             Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("录入每位成员的实际支付与应承担金额，系统会计算净余额并生成最少转账方案。", style = MaterialTheme.typography.bodyMedium)
+            com.secureledger.feature.project.SelectedBillsSection(records, members, identity.userId, onCreateSelected) { proof = it; error = null }
+            TextButton(onClick = { manualMode = !manualMode }) { Text(if (manualMode) "收起手动分摊" else "高级：手动分摊") }
+            if (manualMode) {
+            Text("自定义分摊金额；所填结果由相关成员核对确认。", style = MaterialTheme.typography.bodyMedium)
             drafts.forEachIndexed { index, draft ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1062,6 +1113,7 @@ private fun SettlementScreen(
                     }.onFailure { error = it.message ?: "请输入有效金额" }
                 }
             ) { Text("计算并保存结算") }
+            }
             proof?.let { settlement ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1069,7 +1121,8 @@ private fun SettlementScreen(
                         Text("状态：${if (settlement.verifyHash() && settlement.verifySignatures()) "有效" else "需检查"}")
                         Text("成员确认：${settlement.signatures.map { it.signerId }.distinct().size}/${settlement.participants.distinct().size}")
                         settlement.transfers.forEach { transfer ->
-                            Text("${transfer.from} → ${transfer.to}：¥${formatCents(transfer.cents)}")
+                            fun name(id: String) = if (id == identity.userId) "我" else members.firstOrNull { it.userId == id }?.let { "${it.displayName} · ${id.takeLast(4)}" } ?: id.takeLast(6)
+                            Text("${name(transfer.from)} → ${name(transfer.to)}：¥${formatCents(transfer.cents)}")
                         }
                         OutlinedButton(onClick = {
                             onEncode(settlement).onSuccess { approvalOutput = it; error = null }
@@ -1081,7 +1134,8 @@ private fun SettlementScreen(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("多人确认", style = MaterialTheme.typography.titleMedium)
-                    Text("成员扫描待确认内容并确认，再由创建者合并返回的数据。", style = MaterialTheme.typography.bodySmall)
+                    Text("分享结算文件给成员，对方打开后确认，再分享回来即可完成会签。文件包含分摊金额，仅发给项目成员。", style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = { approvalFilePicker.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) { Text("打开 AA 结算文件") }
                     OutlinedTextField(approvalInput, { approvalInput = it }, label = { Text("粘贴确认数据") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
@@ -1089,7 +1143,11 @@ private fun SettlementScreen(
                         }, modifier = Modifier.weight(1f)) { Text("扫描") }
                         Button(onClick = {
                             onCoSign(approvalInput) { result ->
-                                result.onSuccess { approvalOutput = it; error = null }
+                                result.onSuccess {
+                                    approvalOutput = it
+                                    proof = com.secureledger.core.protocol.SettlementExchangeCodec.decode(it)
+                                    error = null
+                                }
                                     .onFailure { error = it.message ?: "会签失败" }
                             }
                         }, modifier = Modifier.weight(1f)) { Text("确认") }
@@ -1101,6 +1159,7 @@ private fun SettlementScreen(
                         }
                     }, modifier = Modifier.fillMaxWidth()) { Text("合并成员确认") }
                     approvalOutput?.let { encoded ->
+                        Button(onClick = { runCatching { com.secureledger.integration.sync.SyncFiles.share(context, encoded, approval = true) }.onFailure { error = it.message } }, modifier = Modifier.fillMaxWidth()) { Text("分享 AA 结算文件") }
                         approvalQr?.let { Image(it.asImageBitmap(), "AA 会签二维码", Modifier.size(260.dp).align(Alignment.CenterHorizontally)) }
                         OutlinedButton(onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

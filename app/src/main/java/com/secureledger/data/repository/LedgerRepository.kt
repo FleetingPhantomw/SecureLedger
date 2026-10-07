@@ -28,7 +28,7 @@ import java.util.UUID
 /** Application boundary that atomically creates signed immutable records. */
 class LedgerRepository(
     private val dao: LedgerRecordDao,
-    private val keyManager: KeyManager,
+    private val keyManager: KeyManager? = null,
     private val projectKeys: ProjectKeyRepository? = null,
     private val database: AppDatabase? = null
 ) {

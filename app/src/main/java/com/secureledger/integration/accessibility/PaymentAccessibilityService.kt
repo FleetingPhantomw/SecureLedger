@@ -82,8 +82,14 @@ class PaymentAccessibilityService : AccessibilityService() {
         if (candidate.confidence < 0.75f) return
         val rule = rules.firstOrNull { it.id == candidate.ruleId } ?: return
         if (deduplicator.shouldPrompt(candidate, rule.cooldownMs, now)) {
-            val delivery = dispatcher.dispatch(candidate, settings.promptMode)
-            deferredOverlay = if (delivery == PromptDelivery.OVERLAY) DeferredOverlay(candidate, contentHash, now) else null
+            val fused = (application as SecureLedgerApplication).recognitionCoordinator.accept(candidate,
+                com.secureledger.core.accessibility.DetectionSource.SCREEN, "$packageName|${event.windowId}|$contentHash|${now / 60_000}") ?: return
+            if (!fused.isNew) {
+                if (CandidateInbox.pending.value?.id == fused.candidate.id) CandidateInbox.offer(fused.candidate)
+                return
+            }
+            val delivery = dispatcher.dispatch(fused.candidate, settings.promptMode)
+            deferredOverlay = if (delivery == PromptDelivery.OVERLAY) DeferredOverlay(fused.candidate, contentHash, now) else null
         }
     }
 

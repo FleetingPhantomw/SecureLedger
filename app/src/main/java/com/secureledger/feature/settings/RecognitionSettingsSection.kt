@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -55,6 +56,7 @@ internal fun RecognitionSettingsSection(preferences: AccessibilityPreferences) {
     var notificationsGranted by remember { mutableStateOf(Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) }
     var customPackage by remember { mutableStateOf("") }
+    var listenerGranted by remember { mutableStateOf(context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)) }
     var message by remember { mutableStateOf<String?>(null) }
     var editingRule by remember { mutableStateOf<TransactionRule?>(null) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -65,6 +67,7 @@ internal fun RecognitionSettingsSection(preferences: AccessibilityPreferences) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 osEnabled = isServiceEnabled(context)
+                listenerGranted = context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)
                 overlayGranted = Settings.canDrawOverlays(context)
                 notificationsGranted = Build.VERSION.SDK_INT < 33 ||
                     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -99,6 +102,17 @@ internal fun RecognitionSettingsSection(preferences: AccessibilityPreferences) {
         context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
             Uri.parse("package:${context.packageName}")))
     }, modifier = Modifier.fillMaxWidth()) { Text("打开悬浮窗权限设置") }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("支付通知辅助识别")
+            Text("参考 Biller 双通道方案，仅处理所选微信、支付宝付款通知。识别后仍需确认。", style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(state.notificationCapture, { enabled -> preferences.setNotificationCapture(enabled) })
+    }
+    if (state.notificationCapture) {
+        Text(if (listenerGranted) "通知读取已授权" else "还需单独授予通知读取权限", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }, modifier = Modifier.fillMaxWidth()) { Text("打开通知读取权限设置") }
+    }
     Text("识别应用", style = MaterialTheme.typography.labelLarge)
     val commonPackages = listOf(
         "支付宝" to "com.eg.android.AlipayGphone", "微信" to "com.tencent.mm",

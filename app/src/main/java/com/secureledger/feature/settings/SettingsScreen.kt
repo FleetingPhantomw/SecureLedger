@@ -90,6 +90,7 @@ fun SettingsScreen(
             Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding().padding(LedgerSpacing.page).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            AppearanceSection()
             Text("隐私与安全", style = MaterialTheme.typography.headlineSmall)
             Text("账目和图片识别默认只在本机处理。", style = MaterialTheme.typography.bodyMedium)
             OutlinedButton(onClick = onOpenSecurity, modifier = Modifier.fillMaxWidth()) { Text("数据与安全") }

@@ -9,6 +9,13 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -75,17 +82,17 @@ private val DarkColors = darkColorScheme(
     onTertiary = Color(0xFF2C4032),
     tertiaryContainer = Color(0xFF405649),
     onTertiaryContainer = Color(0xFFE2E9E3),
-    background = Color(0xFF11191C),
+    background = Color.Black,
     onBackground = Color(0xFFE1E9E8),
-    surface = Color(0xFF11191C),
+    surface = Color.Black,
     onSurface = Color(0xFFE1E9E8),
-    surfaceDim = Color(0xFF11191C),
-    surfaceBright = Color(0xFF364044),
-    surfaceContainerLowest = Color(0xFF0D1417),
-    surfaceContainerLow = Color(0xFF192226),
-    surfaceContainer = Color(0xFF1F292C),
-    surfaceContainerHigh = Color(0xFF293438),
-    surfaceContainerHighest = Color(0xFF344044),
+    surfaceDim = Color.Black,
+    surfaceBright = Color(0xFF222229),
+    surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color(0xFF101014),
+    surfaceContainer = Color(0xFF18181E),
+    surfaceContainerHigh = Color(0xFF222229),
+    surfaceContainerHighest = Color(0xFF2D2D35),
     surfaceVariant = Color(0xFF3E4A4D),
     onSurfaceVariant = Color(0xFFBECACC),
     surfaceTint = Color(0xFFA6CAD5),
@@ -141,9 +148,9 @@ object LedgerMotion {
 private val LedgerShapes = Shapes(
     extraSmall = RoundedCornerShape(4.dp),
     small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(20.dp)
+    medium = RoundedCornerShape(18.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(28.dp)
 )
 
 private val LedgerTypography = Typography(
@@ -161,12 +168,47 @@ private val LedgerTypography = Typography(
 
 @Composable
 fun SecureLedgerTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean? = null,
     content: @Composable () -> Unit
 ) {
-    CompositionLocalProvider(LocalLedgerSemanticColors provides if (darkTheme) DarkSemanticColors else LightSemanticColors) {
+    val context = LocalContext.current
+    val preferences = remember(context) {
+        (context.applicationContext as? com.secureledger.SecureLedgerApplication)?.appearancePreferences
+            ?: AppearancePreferences(context.applicationContext)
+    }
+    val appearance by preferences.state.collectAsState()
+    val dark = darkTheme ?: when (appearance.mode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+    val accent = Color(android.graphics.Color.parseColor("#${appearance.accentHex}"))
+    // Guarantee readable primary controls even for very pale or very dark custom accents.
+    var primary = if (dark) lerp(accent, Color.White, 0.42f) else
+        if (accent.luminance() > 0.28f) lerp(accent, Color.Black, 0.48f) else accent
+    repeat(16) {
+        if (dark && primary.luminance() < 0.20f) primary = lerp(primary, Color.White, 0.10f)
+        if (!dark && primary.luminance() > 0.18f) primary = lerp(primary, Color.Black, 0.10f)
+    }
+    SideEffect {
+        (context as? android.app.Activity)?.window?.let { window ->
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+    val container = lerp(accent, if (dark) Color.Black else Color.White, if (dark) 0.68f else 0.88f)
+    val colors = (if (dark) DarkColors else LightColors).copy(
+        primary = primary, onPrimary = if (dark) Color.Black else Color.White,
+        primaryContainer = container, onPrimaryContainer = if (dark) Color(0xFFF3F1FF) else Color(0xFF211D35),
+        secondary = primary, onSecondary = if (dark) Color.Black else Color.White,
+        secondaryContainer = container, onSecondaryContainer = if (dark) Color(0xFFF3F1FF) else Color(0xFF211D35),
+        surfaceTint = Color.Transparent, inversePrimary = accent
+    )
+    CompositionLocalProvider(LocalLedgerSemanticColors provides if (dark) DarkSemanticColors else LightSemanticColors) {
         MaterialTheme(
-            colorScheme = if (darkTheme) DarkColors else LightColors,
+            colorScheme = colors,
             typography = LedgerTypography,
             shapes = LedgerShapes,
             content = content

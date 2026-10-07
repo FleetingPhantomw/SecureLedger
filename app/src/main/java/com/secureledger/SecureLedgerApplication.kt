@@ -39,6 +39,8 @@ class SecureLedgerApplication : Application() {
     val importRepository by lazy { ImportRepository(database, ledgerRepository) }
     val ocrEngine: OcrEngine by lazy { PaddleOcrEngine(this) }
     val accessibilityPreferences by lazy { AccessibilityPreferences(this) }
+    val appearancePreferences by lazy { com.secureledger.design.AppearancePreferences(this) }
+    val recognitionCoordinator by lazy { com.secureledger.integration.accessibility.RecognitionCoordinator(this) }
     val orderParser by lazy { OrderParser() }
     val invitationRepository by lazy { InvitationRepository(database, projectKeyRepository) }
     val backupRepository by lazy { BackupRepository(database, keyManager) }

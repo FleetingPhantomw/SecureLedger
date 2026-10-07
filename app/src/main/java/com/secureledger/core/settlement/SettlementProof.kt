@@ -25,7 +25,9 @@ data class SettlementProof(
     val transfers: List<Transfer>,
     val createdAt: Long,
     val hash: String,
-    val signatures: List<SettlementSignature>
+    val signatures: List<SettlementSignature>,
+    val selectedRecordIds: List<String> = emptyList(),
+    val allocations: List<MemberAllocation> = emptyList()
 ) {
     fun canonicalBytes(): ByteArray = buildString {
         append(projectId).append('|').append(settlementId).append('|').append(ledgerMerkleRoot).append('|')
@@ -35,6 +37,15 @@ data class SettlementProof(
         append('|')
         transfers.sortedWith(compareBy({ it.from }, { it.to })).forEach { append(it.from).append('>').append(it.to).append('=').append(it.cents).append(',') }
         append('|').append(createdAt)
+        // Empty extension preserves canonical bytes of existing settlement proofs.
+        if (selectedRecordIds.isNotEmpty() || allocations.isNotEmpty()) {
+            append("|selected-v1|")
+            selectedRecordIds.sorted().forEach { append(it).append(',') }
+            append('|')
+            allocations.sortedBy { it.participantId }.forEach {
+                append(it.participantId).append('=').append(it.paidCents).append(':').append(it.owedCents).append(',')
+            }
+        }
     }.toByteArray(Charsets.UTF_8)
 
     fun verifyHash(): Boolean = HashManager.sha256Hex(canonicalBytes()) == hash

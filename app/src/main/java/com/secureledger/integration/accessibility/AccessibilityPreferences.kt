@@ -18,7 +18,8 @@ data class RecognitionSettings(
     val selectedPackages: Set<String> = emptySet(),
     val promptMode: PromptMode = PromptMode.OVERLAY,
     val rules: List<TransactionRule> = PresetTransactionRules.rules,
-    val schemaVersion: Int = 1
+    val schemaVersion: Int = 1,
+    val notificationCapture: Boolean = false
 )
 
 /** Persists configuration only, never third-party screen content or transaction candidates. */
@@ -38,6 +39,7 @@ class AccessibilityPreferences(context: Context) {
     }
 
     fun setPromptMode(mode: PromptMode) = save(_state.value.copy(promptMode = mode))
+    fun setNotificationCapture(enabled: Boolean) = save(_state.value.copy(notificationCapture = enabled))
 
     fun saveRule(rule: TransactionRule) {
         rule.validate()
