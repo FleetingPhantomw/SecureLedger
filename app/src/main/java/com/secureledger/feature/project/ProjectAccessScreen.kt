@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
+import com.secureledger.integration.qr.QrScanner
 import com.secureledger.data.entity.ProjectEntity
 import com.secureledger.data.entity.ProjectMemberEntity
 
@@ -123,7 +123,7 @@ fun ProjectAccessScreen(
             }
             Text(if (project == null) "第二步：扫描创建者返回的邀请" else "扫描或粘贴新成员的请求", style = MaterialTheme.typography.titleMedium)
             Button(onClick = {
-                scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false).setOrientationLocked(false))
+                scanner.launch(QrScanner.options(if (project == null) "扫描项目邀请" else "扫描成员加入请求"))
             }, modifier = Modifier.fillMaxWidth()) { Text("扫码") }
             OutlinedTextField(input, { input = it }, label = { Text("粘贴交换数据") }, minLines = 3, maxLines = 6, modifier = Modifier.fillMaxWidth())
             Button(onClick = { process(input) }, enabled = input.isNotBlank(), modifier = Modifier.fillMaxWidth()) {

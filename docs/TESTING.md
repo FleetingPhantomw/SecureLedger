@@ -1,5 +1,13 @@
 # Verification matrix
 
+## QR scanner targeted check 2026-10-07
+
+The shared scanner now opens in portrait for sync, project invitations and AA approval, and offers an image-only system photo picker with a document-picker fallback. Selected images are decoded off the UI thread with the longest edge limited to2048 pixels. Camera denial leaves the gallery entry usable; existing protocol validation and user-confirmation rules are unchanged.
+
+Built `assembleDebug assembleDebugAndroidTest` offline using the existing Gradle8.7/JDK17 installation and updated the app on `SecureLedger_API35` (`emulator-5554`) with `install -r`, without clearing vault data. Only `QrScannerDeviceTest` was executed: portrait Activity/configuration, a running camera preview, a square QR frame, a visible gallery button, image-only picker request and exact QR text returned through `ScanContract`.
+
+The initial attempt timed out in `ActivityScenario.close()` while racing its helper Activity. The test now waits for the scanner's `ON_DESTROY` after receiving the result; the same case then passed in3.521s, **OK (1 test)**. Testing stopped at that first passing verification, as requested. The test generates one synthetic MediaStore image and deletes that exact URI in its cleanup. Picker selection is supplied by an instrumentation monitor; this verifies the actual URI decoder and Activity result path, not manual navigation of the system gallery or real-camera decoding quality. The scanner screenshot from this implementation was visually inspected. No full-suite or physical-phone regression was run for this change.
+
 ## Current regression 2026-10-07
 
 Debug build: `testDebugUnitTest assembleDebug assembleDebugAndroidTest` succeeded;45 JVM tests,zero failures. Updated APKs installed with `-r` on API35/x86_64 emulator and Meizu20Pro Android16/API36 arm64 phone without clearing main-package data.

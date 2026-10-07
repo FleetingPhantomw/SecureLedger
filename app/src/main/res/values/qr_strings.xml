@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="qr_back">返回</string>
+    <string name="qr_scan_prompt">扫描二维码</string>
+    <string name="qr_scan_hint">将二维码放入框内，或从相册选择二维码图片</string>
+    <string name="qr_select_image">从相册选择</string>
+    <string name="qr_enable_camera">开启相机</string>
+    <string name="qr_retry_camera">重试相机</string>
+    <string name="qr_camera_permission_hint">未开启相机权限，仍可从相册选择二维码图片</string>
+    <string name="qr_camera_unavailable">相机暂时不可用，可以重试或从相册选择</string>
+    <string name="qr_decoding_image">正在识别图片中的二维码…</string>
+    <string name="qr_image_no_code">图片中未识别到二维码，请选择清晰的二维码图片</string>
+    <string name="qr_image_unreadable">无法读取这张图片，请重新选择</string>
+</resources>

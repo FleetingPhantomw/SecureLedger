@@ -148,7 +148,7 @@ import java.util.UUID
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
+import com.secureledger.integration.qr.QrScanner
 
 private enum class Tab { HOME, LEDGER, PROJECTS, SYNC }
 
@@ -936,11 +936,7 @@ private fun SyncScreen(
         Button(
             onClick = {
                 scanner.launch(
-                    ScanOptions()
-                        .setPrompt("扫描 SecureLedger 同步二维码")
-                        .setBeepEnabled(false)
-                        .setOrientationLocked(false)
-                        .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    QrScanner.options("扫描 SecureLedger 同步二维码")
                 )
             },
             modifier = Modifier.fillMaxWidth()
@@ -1139,7 +1135,7 @@ private fun SettlementScreen(
                     OutlinedTextField(approvalInput, { approvalInput = it }, label = { Text("粘贴确认数据") }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
-                            approvalScanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("扫描 AA 会签包"))
+                            approvalScanner.launch(QrScanner.options("扫描 AA 会签包"))
                         }, modifier = Modifier.weight(1f)) { Text("扫描") }
                         Button(onClick = {
                             onCoSign(approvalInput) { result ->

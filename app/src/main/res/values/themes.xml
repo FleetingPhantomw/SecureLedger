@@ -5,4 +5,12 @@
         <!-- Compose provides its own light/dark palette; do not remap pure black. -->
         <item name="android:forceDarkAllowed">false</item>
     </style>
+    <style name="Theme.SecureLedger.QrScanner" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#315EFB</item>
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
 </resources>
