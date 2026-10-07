@@ -1,4 +1,5 @@
 .gradle/
+.kotlin/
 build/
 app/build/
 local.properties
@@ -16,3 +17,13 @@ captures/
 .externalNativeBuild/
 .cxx/
 交易示例/
+__pycache__/
+~$*.docx
+
+# Course materials remain local and are not part of application history.
+/reports/
+/文档规范/
+/scripts/*course-reports.py
+/scripts/inspect-report-templates.py
+/scripts/render-reports.ps1
+/scripts/report-qa.py

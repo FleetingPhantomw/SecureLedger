@@ -1,5 +1,9 @@
 # Performance baseline
 
+## Current validation note 2026-10-07
+
+The phone is now available and the normal instrumentation suite completed on Android16. Suite totals (24.367s emulator,45.9s phone) are **not** individual unlock or OCR timings. This iteration did not run a controlled before/after benchmark; historical stage measurements must not be presented as new improvement percentages. File-picker reads run on Dispatchers.IO, OCR sessions remain application-scoped, and Argon2id parameters are unchanged.
+
 Measurements use `SystemClock.elapsedRealtime()` and sanitized `SecureLedgerPerf` log entries. Logs contain durations and record counts only; passwords, private keys, master keys, and plaintext ledger data are never logged.
 
 ## API 35 emulator baseline (before final UI and navigation refactor)

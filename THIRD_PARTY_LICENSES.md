@@ -19,3 +19,7 @@ SecureLedger intentionally uses mature libraries for infrastructure and cryptogr
 AES-GCM, SHA-256 and secure randomness are provided by the Android/JCA platform. Android Keystore supplies device-bound key protection. OCR, QR and CameraX integrations remain isolated from the application-layer cryptographic protocol.
 
 The PaddleOCR SDK source is vendored unmodified in `ppocr-sdk/src/main/java`. PP-OCRv6_small ONNX models were obtained from the official Paddle model distribution linked in the Android deployment guide and bundled in `ppocr-sdk/src/main/assets/models`. Images and recognized text are processed locally.
+
+## Design reference, not a vendored dependency
+
+[Biller-Android](https://github.com/kangkaipeng/Biller-Android) was inspected on 2026-10-07 for accessibility/notification dual-source extraction and short-window fusion. SecureLedger independently implements its parsers, coordinator and rules; no upstream code was copied or packaged. The inspected repository did not provide a verified permissive LICENSE, and its README describes personal-learning restrictions. Do not label this reference MIT/Apache or copy code without appropriate rights. SecureLedger does not adopt OEM service impersonation techniques.
