@@ -2,5 +2,7 @@
     <style name="Theme.SecureLedger" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#315EFB</item>
+        <!-- Compose provides its own light/dark palette; do not remap pure black. -->
+        <item name="android:forceDarkAllowed">false</item>
     </style>
 </resources>

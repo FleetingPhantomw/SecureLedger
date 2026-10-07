@@ -1,0 +1,9 @@
+<resources>
+    <!-- Advertise a native dark theme as well as Compose's dark palette. -->
+    <style name="Theme.SecureLedger" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#A8AAFB</item>
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:forceDarkAllowed">false</item>
+    </style>
+</resources>

@@ -14,6 +14,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.CompositionLocalProvider
@@ -172,6 +173,7 @@ fun SecureLedgerTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     val preferences = remember(context) {
         (context.applicationContext as? com.secureledger.SecureLedgerApplication)?.appearancePreferences
             ?: AppearancePreferences(context.applicationContext)
@@ -191,6 +193,7 @@ fun SecureLedgerTheme(
         if (!dark && primary.luminance() > 0.18f) primary = lerp(primary, Color.Black, 0.10f)
     }
     SideEffect {
+        if (android.os.Build.VERSION.SDK_INT >= 29) view.isForceDarkAllowed = false
         (context as? android.app.Activity)?.window?.let { window ->
             androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !dark
