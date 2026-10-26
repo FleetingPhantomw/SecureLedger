@@ -1,0 +1,24 @@
+SecureLedger
+Copyright 2026 SecureLedger contributors
+
+The original SecureLedger application code, documentation, and build
+configuration are licensed under the Apache License, Version 2.0.
+See LICENSE for the full license text.
+
+Third-party components and assets retain their respective copyright and
+license notices. The root project license does not replace those notices
+or grant rights beyond their applicable licenses.
+
+This distribution includes the PaddleOCR Android SDK and PP-OCRv6_small
+model assets from the PaddlePaddle/PaddleOCR project.
+Copyright PaddlePaddle Authors.
+The bundled SDK license is in ppocr-sdk/LICENSE; source provenance and
+model checksums are recorded in ppocr-sdk/README.md.
+
+Additional dependency attributions and the distinction between bundled
+components and design references are documented in THIRD_PARTY_LICENSES.md.
+Biller-Android is a design reference only; no code from that project is
+included in this distribution or relicensed by SecureLedger.
+
+This notice provides attribution information and does not modify the
+terms of any applicable license.

@@ -1,5 +1,11 @@
 # Third-party components
 
+The original SecureLedger application code, documentation, and build configuration
+are licensed under Apache-2.0; see the root [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Third-party source, models, and dependencies retain their own licenses and
+copyright notices. The root license does not relicense these components or any
+project mentioned only as a design reference.
+
 SecureLedger intentionally uses mature libraries for infrastructure and cryptographic primitives. Versions are pinned in `app/build.gradle.kts`.
 
 | Component | Version | Source | License | Purpose |

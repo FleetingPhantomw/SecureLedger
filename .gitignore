@@ -27,3 +27,39 @@ __pycache__/
 /scripts/inspect-report-templates.py
 /scripts/render-reports.ps1
 /scripts/report-qa.py
+
+# Local secrets and signing material, including files outside .signing/.
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.dpapi
+keystore.properties
+secrets.properties
+
+# Local financial data, backups, and exchange packages.
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.sldb
+*.slsync
+personal-data/
+private-data/
+
+# Generated packages, module build directories, and local diagnostics.
+**/build/
+*.apk
+*.aab
+*.log
